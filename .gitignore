@@ -26,6 +26,9 @@ cx_quizbank.json
 .logs/
 *.log
 
+# 第三方参考仓库（只读借鉴，不是交付物）
+refs/
+
 # 运行期
 node_modules/
 __pycache__/
