@@ -1983,7 +1983,7 @@ index aadb3d9..96a3f29 100644
  		info = h('div', { className: 'result-info no-answer' }, '❌ 题库没搜索到答案');
  	} else {
 diff --git a/packages/scripts/src/projects/cx.ts b/packages/scripts/src/projects/cx.ts
-index da82b2b..79ac09e 100644
+index da82b2b..c39e897 100644
 --- a/packages/scripts/src/projects/cx.ts
 +++ b/packages/scripts/src/projects/cx.ts
 @@ -9,13 +9,20 @@ import {
@@ -2008,7 +2008,7 @@ index da82b2b..79ac09e 100644
  import {
  	answerWrapperEmptyWarning,
  	commonWork,
-@@ -23,12 +30,24 @@ import {
+@@ -23,12 +30,25 @@ import {
  	extractTextWithImages,
  	removeRedundantWords,
  	simplifyWorkResult,
@@ -2028,13 +2028,14 @@ index da82b2b..79ac09e 100644
 +	clickVideoQuizOption,
 +	pickVideoQuizOptions,
 +	isMultipleChoice,
-+	readOptionMarks
++	readOptionMarks,
++	probeVideoQuizCandidates
 +} from '../utils/cx-videoquiz';
 +import type { VideoQuiz } from '../utils/cx-videoquiz';
  
  /**
   * 超星 font-cxsecret 解密用的参考特征表（FRB2 位打包格式，wght 350/400 字重特征）。
-@@ -59,13 +78,12 @@ try {
+@@ -59,13 +79,12 @@ try {
  const state = {
  	study: {
  		videojs: Object.create({}),
@@ -2045,11 +2046,11 @@ index da82b2b..79ac09e 100644
  };
  
 -type VideoQuizStrategy = 'random' | 'ignore';
-+type VideoQuizStrategy = 'ai' | 'ignore';
++type VideoQuizStrategy = 'ai' | 'random' | 'ignore';
  
  type Attachment = {
  	/** 只有当 module 为 音视频（并且已经播放完成）时才会有这个属性 */
-@@ -224,20 +242,43 @@ export const CXProject = Project.create({
+@@ -224,20 +243,46 @@ export const CXProject = Project.create({
  						['⚠️目前超星倍速风控严重，如果高倍速', '被平台清空进度，请调到1-2倍速学习！']
  					]).outerHTML
  				},
@@ -2083,21 +2084,44 @@ index da82b2b..79ac09e 100644
  					tag: 'select',
  					options: [
 -						['random', '随机答题'],
-+						// 上游默认是“随机答题”，本项目改为走模型
-+						['ai', '模型作答'],
++						['ai', '模型作答（答不出时随机）'],
++						// 完全复刻上游：不请求模型，随机选一个并提交
++						['random', '随机作答（上游模式）'],
  						['ignore', '忽略']
  					],
  					attrs: {
  						title:
 -							'视频有时在学习过程中会弹出题目，这个好像并不计算在分数内，所以可以忽略，视频可以正常观看，这里提供几个方法处理题目'
-+							'视频有时会在学习过程中弹出题目。本分支已禁用“随机作答”，改为交给模型作答（需在通用-全局设置里配置模型 API Key），选“忽略”则不动弹题。'
++							'视频有时会在学习过程中弹出题目。默认交给模型作答；模型给不出可用答案时按上游方式随机选一个并提交，避免弹题卡住播放。' +
++							'选“随机作答”则完全按上游方式（不请求模型）；选“忽略”则完全不动弹题。' +
++							'模型作答需先在「通用-全局设置」里配置 API Key。'
  					},
 -					defaultValue: 'random' as VideoQuizStrategy
 +					defaultValue: 'ai' as VideoQuizStrategy
  				},
  				mode: {
  					label: '跳转模式',
-@@ -352,7 +393,13 @@ export const CXProject = Project.create({
+@@ -343,6 +388,19 @@ export const CXProject = Project.create({
+ 					attrs: { type: 'checkbox', title: '开启：章节测试自动答题' },
+ 					defaultValue: true
+ 				},
++				cxRandomFallback: {
++					elementClassName: 'config-details',
++					showIf: 'cx.new.study.enables',
++					label: '答不出时随机兜底',
++					attrs: {
++						type: 'checkbox',
++						title:
++							'模型搜不到答案时的兜底：选择题随机选一项，填空题随机填入一个占位文案。\n' +
++							'作用：避免因存在未作答题目导致整份测验无法提交。\n' +
++							'代价：该题基本必然判错，并且会写进真实成绩。'
++					},
++					defaultValue: true
++				},
+ 				enableHyperlink: {
+ 					elementClassName: 'config-details',
+ 					showIf: 'cx.new.study.enables',
+@@ -352,7 +410,13 @@ export const CXProject = Project.create({
  				}
  			},
  			onrender({ panel }) {
@@ -2112,7 +2136,7 @@ index da82b2b..79ac09e 100644
  					answerWrapperEmptyWarning(10);
  				}
  
-@@ -429,7 +476,7 @@ export const CXProject = Project.create({
+@@ -429,7 +493,7 @@ export const CXProject = Project.create({
  						// @ts-ignore
  						if (top.currentMedia) {
  							// @ts-ignore 倍速设置
@@ -2121,7 +2145,7 @@ index da82b2b..79ac09e 100644
  							// @ts-ignore 音量设置
  							top.currentMedia.volume = this.cfg.volume;
  						}
-@@ -440,7 +487,7 @@ export const CXProject = Project.create({
+@@ -440,7 +504,7 @@ export const CXProject = Project.create({
  
  					await study({
  						...this.cfg,
@@ -2130,7 +2154,7 @@ index da82b2b..79ac09e 100644
  					});
  				}
  			}
-@@ -460,6 +507,8 @@ export const CXProject = Project.create({
+@@ -460,6 +524,8 @@ export const CXProject = Project.create({
  				}
  
  				const isExam = /\/exam\/preview/.test(location.href);
@@ -2139,7 +2163,7 @@ index da82b2b..79ac09e 100644
  				commonWork({
  					mount_script: this,
  					workerProvider: (opts) => workOrExam(isExam ? 'exam' : 'work', { ...opts, preview_mode: true })
-@@ -592,7 +641,7 @@ export const CXProject = Project.create({
+@@ -592,7 +658,7 @@ export const CXProject = Project.create({
  				if (top === window) {
  					$message.warn({
  						content:
@@ -2148,7 +2172,7 @@ index da82b2b..79ac09e 100644
  						duration: 0
  					});
  					// 跳转到最新版本的超星
-@@ -647,6 +696,7 @@ export const CXProject = Project.create({
+@@ -647,6 +713,7 @@ export const CXProject = Project.create({
  						duration: 0
  					});
  					const isExam = /\/exam\/test/.test(location.href);
@@ -2156,7 +2180,7 @@ index da82b2b..79ac09e 100644
  					const workOptions = CommonProject.scripts.settings.methods.getWorkOptions();
  					BackgroundProject.scripts.render.methods.pin(this);
  					commonWork({
-@@ -661,77 +711,6 @@ export const CXProject = Project.create({
+@@ -661,77 +728,6 @@ export const CXProject = Project.create({
  				setTimeout(() => $gm.unsafeWindow.topreview(), 3000);
  			}
  		}),
@@ -2234,7 +2258,7 @@ index da82b2b..79ac09e 100644
  		studyDispatcher: new Script({
  			name: '课程学习调度器',
  			matches: [['课程学习页面', '/mycourse/studentstudy']],
-@@ -782,7 +761,9 @@ export const CXProject = Project.create({
+@@ -782,7 +778,9 @@ export const CXProject = Project.create({
  				['作业', '/mooc2/work/dowork']
  			],
  			async oncomplete() {
@@ -2245,7 +2269,7 @@ index da82b2b..79ac09e 100644
  			}
  		}),
  		// 积分课提示
-@@ -1184,6 +1165,56 @@ function mobilelearn(opts: CommonWorkOptions) {
+@@ -1184,6 +1182,56 @@ function mobilelearn(opts: CommonWorkOptions) {
   * @see 算法详解见 utils/font-decrypt/bitmap.ts 文件头注释
   * @see 参考 https://bbs.tampermonkey.net.cn/thread-2303-1-1.html
   */
@@ -2302,7 +2326,7 @@ index da82b2b..79ac09e 100644
  async function mappingRecognize(doc: Document = document) {
  	// 从 @font-face 的 data URI 中提取加密字体
  	const fontBuffer = extractFontFromStyle(doc, 'font-cxsecret');
-@@ -1332,93 +1363,6 @@ const CXAnalyses = {
+@@ -1332,93 +1380,6 @@ const CXAnalyses = {
  	}
  };
  
@@ -2396,7 +2420,7 @@ index da82b2b..79ac09e 100644
  
  /**
   * cx 任务学习
-@@ -1685,7 +1629,9 @@ function searchJob(opts: typeof CXProject.scripts.study.cfg, searchedJobs: Job[]
+@@ -1685,7 +1646,9 @@ function searchJob(opts: typeof CXProject.scripts.study.cfg, searchedJobs: Job[]
  									}播放 : ` + jobName;
  								$message.info({ content: msg });
  								$console.log(msg);
@@ -2407,43 +2431,77 @@ index da82b2b..79ac09e 100644
  							};
  						}
  					}
-@@ -1804,7 +1750,76 @@ export function fixedVideoProgress() {
+@@ -1804,7 +1767,99 @@ export function fixedVideoProgress() {
  /**
   * 任务点运行器
   */
 +
++/** 随机兜底填空用的占位文案（沿用上游 randomWork-completeTexts 的默认值） */
++const RANDOM_FILL_TEXTS = ['不会', '不知道', '不清楚', '不懂', '不会写'];
++
 +/** 已尝试过的视频内弹题标识，避免同一道弹题反复请求模型（省 token） */
 +const answeredVideoQuizzes = new Set<string>();
++/** 已打印过的「疑似弹题元素」诊断签名，避免刷屏 */
++const videoQuizHints = new Set<string>();
 +
  const JobRunner = {
 +	/**
 +	 * 作答视频内弹题。
 +	 *
-+	 * 复用通用答题器管道（buildAnswererEnv + defaultAnswerWrapperHandler）与上游的
-+	 * 题型匹配算法，不自己写匹配逻辑。
++	 * 答案来源按策略决定：`ai` 先问模型，**答不出时按上游方式随机选一个**（避免弹题
++	 * 卡住播放）；`random` 完全复刻上游，不请求模型。
 +	 *
 +	 * 两个容易出错的地方：作答后**必须点击提交按钮**，否则超星不记录这次作答；
-+	 * 未成功作答时**不移除弹题**，留给人工处理（本项目不做随机作答）。
++	 * 结构不完整时**不移除弹题**，留给人工处理。
 +	 *
 +	 * @returns 是否成功提交
 +	 */
-+	async answerVideoQuiz(quiz: VideoQuiz, answererWrappers?: any[]): Promise<boolean> {
++	async answerVideoQuiz(quiz: VideoQuiz, strategy: 'ai' | 'random', answererWrappers?: any[]): Promise<boolean> {
 +		const { texts, options, submit } = quiz;
-+		// 弹题出现概率低、难复现：把 DOM 事实一次打全，便于事后定位
-+		const marks = readOptionMarks(quiz);
 +		$console.log(
 +			'[CXStudy] 检测到视频内弹题：选项 ' + texts.length + ' 个，提交按钮=' + (submit ? '有' : '无') +
-+				'，DOM 标记=[' + marks + ']'
++				'，DOM 标记=[' + readOptionMarks(quiz) + ']'
 +		);
 +		if (!texts.length || !submit) {
 +			$console.warn('[CXStudy] 弹题结构不完整（选项或提交按钮缺失）→ 不处理，留给人工。');
 +			return false;
 +		}
-+		if (!answererWrappers || !answererWrappers.length) {
-+			$console.warn('[CXStudy] 视频内题目：未配置模型答题器 → 不处理，留给人工（不做随机作答）。');
++
++		let picked: string[] = [];
++		if (strategy === 'ai') {
++			picked = await JobRunner.pickVideoQuizByAI(quiz, answererWrappers);
++		}
++		if (!picked.length) {
++			const idx = Math.floor(Math.random() * options.length);
++			picked = texts[idx] !== undefined ? [texts[idx]] : [];
++			$console.log(
++				'[CXStudy] ' +
++					(strategy === 'ai' ? '模型未给出可用答案 → 按上游方式随机作答：' : '随机作答（上游模式）：') +
++					picked.join('、')
++			);
++		}
++		if (!picked.length) {
++			$console.warn('[CXStudy] 无法确定要点击的选项 → 不处理，留给人工。');
 +			return false;
 +		}
 +
++		for (const text of picked) {
++			const idx = texts.indexOf(text);
++			if (idx >= 0) clickVideoQuizOption(options[idx]);
++			await $.sleep(200);
++		}
++		submit.click();
++		$console.log('[CXStudy] 视频内题目 → 已提交：' + picked.join('、'));
++		return true;
++	},
++
++	/** 模型作答：返回要点击的选项文本，未成功则返回空数组 */
++	async pickVideoQuizByAI(quiz: VideoQuiz, answererWrappers?: any[]): Promise<string[]> {
++		const { texts, options } = quiz;
++		if (!answererWrappers || !answererWrappers.length) {
++			$console.warn('[CXStudy] 未配置模型答题器 → 跳过模型作答。');
++			return [];
++		}
 +		// 题干：取容器全文并剔除选项文本，避免把选项混进题干
 +		let title = (quiz.container?.innerText || '').trim();
 +		for (const t of texts) title = title.split(t).join(' ');
@@ -2457,34 +2515,23 @@ index da82b2b..79ac09e 100644
 +				.filter((g) => g.length);
 +			$console.log('[CXStudy] 视频内题目模型答案: ' + JSON.stringify(answerGroups.flat()));
 +			if (!answerGroups.length) {
-+				$console.warn('[CXStudy] 视频内题目：模型未返回答案 → 留给人工。');
-+				return false;
++				$console.warn('[CXStudy] 模型未返回答案。');
++				return [];
 +			}
-+			const multiple = isMultipleChoice(quiz);
-+			const picked = pickVideoQuizOptions(answerGroups, texts, multiple);
++			const picked = pickVideoQuizOptions(answerGroups, texts, isMultipleChoice(quiz));
 +			if (!picked.length) {
-+				$console.warn(
-+					'[CXStudy] 视频内题目：答案无法匹配到任何选项 → 留给人工。答案=' + JSON.stringify(answerGroups.flat())
-+				);
-+				return false;
++				$console.warn('[CXStudy] 模型答案无法匹配到任何选项。答案=' + JSON.stringify(answerGroups.flat()));
 +			}
-+			for (const text of picked) {
-+				const idx = texts.indexOf(text);
-+				if (idx >= 0) clickVideoQuizOption(options[idx]);
-+				await $.sleep(200);
-+			}
-+			submit.click();
-+			$console.log('[CXStudy] 视频内题目 → 已提交：' + picked.join('、'));
-+			return true;
++			return picked;
 +		} catch (e) {
-+			$console.warn('[CXStudy] 视频内题目作答失败：' + (e as any)?.message);
-+			return false;
++			$console.warn('[CXStudy] 模型作答出错：' + (e as any)?.message);
++			return [];
 +		}
 +	},
  	/**
  	 * 播放视频和音频
  	 */
-@@ -1814,7 +1829,9 @@ const JobRunner = {
+@@ -1814,7 +1869,9 @@ const JobRunner = {
  			volume: number;
  			videoQuizStrategy: VideoQuizStrategy;
  		},
@@ -2495,15 +2542,26 @@ index da82b2b..79ac09e 100644
  	) {
  		const { playbackRate = 1, volume = 0 } = setting;
  
-@@ -1835,30 +1852,31 @@ const JobRunner = {
+@@ -1835,32 +1892,54 @@ const JobRunner = {
  		// 固定视频进度
  		fixedVideoProgress();
  
 -		// 随机作答视频内题目
 -		if (setting.videoQuizStrategy === 'random') {
-+		// 视频内弹题：交给模型作答（本项目不做随机作答）。
-+		// 弹题可能在嵌套 iframe 中，且作答后必须提交，因此按「查找 → 作答 → 仅在提交成功后隐藏」处理。
-+		if (setting.videoQuizStrategy === 'ai') {
++		// 视频内弹题：按策略作答。弹题可能在嵌套 iframe 中，且作答后必须提交，
++		// 因此按「查找 → 作答 → 仅在提交成功后隐藏」处理。
++		// 注意：未识别的策略值一律按模型作答处理，绝不静默什么都不做。
++		const rawStrategy = setting.videoQuizStrategy as string;
++		const videoQuizStrategy: VideoQuizStrategy =
++			rawStrategy === 'ignore' || rawStrategy === 'random' ? rawStrategy : 'ai';
++		if (rawStrategy !== videoQuizStrategy) {
++			$console.warn('[CXStudy] 未识别的弹题策略「' + rawStrategy + '」→ 按模型作答处理。');
++		}
++		if (videoQuizStrategy !== 'ignore') {
++			$console.log(
++				'[CXStudy] 视频内弹题策略=' + (videoQuizStrategy === 'ai' ? '模型作答（失败则随机）' : '随机作答（上游模式）') +
++					'，已开始监听。'
++			);
  			const loop = async () => {
 -				const submitBtn = () => doc.querySelector<HTMLElement>('#videoquiz-submit');
 -				if (submitBtn()) {
@@ -2522,32 +2580,45 @@ index da82b2b..79ac09e 100644
 -						for (const com of components) {
 -							com.style.display = 'none';
 +				while (!media.ended) {
-+					const quiz = findVideoQuiz(doc);
-+					if (quiz) {
-+						const key = videoQuizKey(quiz);
-+						if (answeredVideoQuizzes.has(key)) {
-+							await $.sleep(3000);
-+							continue;
-+						}
-+						// 先登记再作答：同一道题只请求一次模型（无论成败），避免反复消耗 token
-+						answeredVideoQuizzes.add(key);
-+						const submitted = await JobRunner.answerVideoQuiz(quiz, answererWrappers);
-+						if (submitted) {
-+							await $.sleep(1000);
-+							hideVideoQuiz(quiz);
++					try {
++						const quiz = findVideoQuiz(doc);
++						if (quiz) {
++							const key = videoQuizKey(quiz);
++							// 先登记再作答：同一道题只处理一次（无论成败），避免反复请求模型或重复点击
++							if (!answeredVideoQuizzes.has(key)) {
++								answeredVideoQuizzes.add(key);
++								const submitted = await JobRunner.answerVideoQuiz(quiz, videoQuizStrategy, answererWrappers);
++								if (submitted) {
++									await $.sleep(1000);
++									hideVideoQuiz(quiz);
++								} else {
++									$console.warn('[CXStudy] 弹题未作答成功 → 保留弹题，请手动作答（不会重复尝试）。');
++									await $.sleep(3000);
++								}
++							}
 +						} else {
-+							$console.warn('[CXStudy] 弹题未作答成功 → 保留弹题，请手动作答（不会重复尝试）。');
-+							await $.sleep(3000);
++							// 没找到：若页面里其实有疑似元素，把它的结构打出来（每份签名只打一次）
++							const hint = probeVideoQuizCandidates(doc);
++							if (hint && !videoQuizHints.has(hint)) {
++								videoQuizHints.add(hint);
++								$console.log('[CXStudy] 未按已知选择器找到弹题，但页面存在疑似元素 → ' + hint);
++							}
  						}
++					} catch (e) {
++						// 单次出错不能让整个监听结束
++						$console.warn('[CXStudy] 弹题监听出错（已忽略，继续监听）：' + (e as any)?.message);
  					}
 +					await $.sleep(2000);
  				}
 -				await $.sleep(3000);
 -				await loop();
  			};
- 			loop();
+-			loop();
++			loop().catch((e) => $console.warn('[CXStudy] 弹题监听已停止：' + (e as any)?.message));
  		}
-@@ -1904,8 +1922,8 @@ const JobRunner = {
+ 
+ 		/**
+@@ -1904,8 +1983,8 @@ const JobRunner = {
  			$console.log('视频开始播放');
  			media.volume = volume;
  
@@ -2558,7 +2629,7 @@ index da82b2b..79ac09e 100644
  
  			// 使用 setTimeout 解决 The play() request was interrupted by a call to pause() 问题
  			setTimeout(() => {
-@@ -1921,8 +1939,33 @@ const JobRunner = {
+@@ -1921,8 +2000,33 @@ const JobRunner = {
  	 * 阅读，PPT
  	 */
  	async read(win: Window & { finishJob?: Function }) {
@@ -2594,7 +2665,7 @@ index da82b2b..79ac09e 100644
  		await $.sleep(3000);
  	},
  	/**
-@@ -1960,6 +2003,16 @@ const JobRunner = {
+@@ -1960,6 +2064,16 @@ const JobRunner = {
  			return answerWrapperEmptyWarning(0);
  		}
  
@@ -2611,19 +2682,21 @@ index da82b2b..79ac09e 100644
  		// 章节测试未使用 commonWork，这里手动触发状态更新
  		CommonEvents.emitWorkerStateChange('start');
  
-@@ -2131,48 +2184,12 @@ const JobRunner = {
+@@ -2131,47 +2245,36 @@ const JobRunner = {
  					simplifyWorkResult(curr, chapterTestTaskQuestionTitleText, index)
  				);
  
 -				// 没有完成时随机作答
-+				// 上游此处会在答不出时“随机选择/随机填空”。
-+				// 本项目是自动提交场景，随机等于把确定性的错答写进真实成绩，因此改为放弃该题。
++				// 模型未给出可用答案时的兜底：按上游方式随机作答。
++				// 目的是避免「存在未作答题目」导致整份测验无法提交；代价是该题基本必然判错，
++				// 因此可用 cxRandomFallback 关闭（关闭后跳过该题）。
  				if (curr.result?.finish === false && curr.resolved === true) {
 -					const options = curr.ctx?.elements?.options || [];
 -
++					const options = (curr.ctx?.elements?.options || []).filter(Boolean) as HTMLElement[];
  					const typeInput = curr.ctx?.elements?.type[0] as HTMLInputElement | undefined;
  					const type = typeInput ? getQuestionType(parseInt(typeInput.value)) : undefined;
--
+ 
 -					const commonSetting = CommonProject.scripts.settings.cfg;
 -
 -					if (
@@ -2632,15 +2705,27 @@ index da82b2b..79ac09e 100644
 -					) {
 -						$console.log('正在随机作答');
 -
--						const option = options[Math.floor(Math.random() * options.length)];
++					if (!CXProject.scripts.study.cfg.cxRandomFallback) {
++						$console.warn('[CXStudy] 本题未得到答案（type=' + type + '）→ 已关闭随机兜底，跳过该题。');
++					} else if (type === 'judgement' || type === 'single' || type === 'multiple') {
+ 						const option = options[Math.floor(Math.random() * options.length)];
 -						// @ts-ignore 随机选择选项
 -						option?.parentElement?.querySelector('a,label')?.click();
 -					} else if (commonSetting['randomWork-complete'] && type === 'completion') {
 -						$console.log('正在随机作答');
 -
 -						// 随机填写答案
--						for (const option of options) {
--							const textarea = option?.parentElement?.querySelector('textarea');
++						$console.warn(
++							'[CXStudy] 本题未得到答案（type=' + type + '）→ 随机兜底选择：' +
++								(option?.textContent?.trim() || '')
++						);
++						// 与上游一致：点选项父元素里的 a 或 label
++						option?.parentElement?.querySelector<HTMLElement>('a,label')?.click();
++					} else if (type === 'completion') {
++						const text = RANDOM_FILL_TEXTS[Math.floor(Math.random() * RANDOM_FILL_TEXTS.length)];
++						$console.warn('[CXStudy] 本题未得到答案（填空题）→ 随机兜底填入：' + text);
+ 						for (const option of options) {
+ 							const textarea = option?.parentElement?.querySelector('textarea');
 -							const completeTexts = commonSetting['randomWork-completeTexts-textarea'].split('\n').filter(Boolean);
 -							const text = completeTexts[Math.floor(Math.random() * completeTexts.length)];
 -							const textareaFrame = option?.parentElement?.querySelector('iframe');
@@ -2657,13 +2742,17 @@ index da82b2b..79ac09e 100644
 -							}
 -
 -							await $.sleep(500);
--						}
--					}
-+					$console.warn('[CXStudy] 本题未得到答案（type=' + type + '）→ 放弃该题，不做随机作答。');
++							const frame = option?.parentElement?.querySelector('iframe');
++							if (textarea) (textarea as HTMLTextAreaElement).value = text;
++							if (frame?.contentDocument) frame.contentDocument.body.innerHTML = text;
++							await $.sleep(200);
+ 						}
++					} else {
++						$console.warn('[CXStudy] 本题未得到答案（type=' + type + '）→ 该题型不支持随机兜底，跳过。');
+ 					}
  				}
  			},
- 			async onElementSearched(elements) {
-@@ -2232,6 +2249,26 @@ const JobRunner = {
+@@ -2232,6 +2335,26 @@ const JobRunner = {
  					// @ts-ignore 提交
  					frameWindow.btnBlueSubmit();
  
@@ -2690,7 +2779,7 @@ index da82b2b..79ac09e 100644
  					await $.sleep(3000);
  					/** 确定按钮 */
  					// @ts-ignore 确定
-@@ -2351,6 +2388,56 @@ async function readerAndFillHandle(searchInfos: SearchInformation[], list: HTMLE
+@@ -2351,6 +2474,56 @@ async function readerAndFillHandle(searchInfos: SearchInformation[], list: HTMLE
  	return { finish: false };
  }
  
@@ -10845,10 +10934,10 @@ index 0000000..d4ce7a9
 +}
 diff --git a/packages/scripts/src/utils/cx-videoquiz.ts b/packages/scripts/src/utils/cx-videoquiz.ts
 new file mode 100644
-index 0000000..20809a6
+index 0000000..2d9137c
 --- /dev/null
 +++ b/packages/scripts/src/utils/cx-videoquiz.ts
-@@ -0,0 +1,169 @@
+@@ -0,0 +1,200 @@
 +/**
 + * 视频内弹题的定位与选项选择。
 + *
@@ -11005,6 +11094,37 @@ index 0000000..20809a6
 +/** 选项是否为多选（checkbox）——决定用多选还是单选匹配算法 */
 +export function isMultipleChoice(quiz: VideoQuiz): boolean {
 +	return quiz.options.some((o) => optionInput(o)?.type === 'checkbox');
++}
++
++/**
++ * 诊断：按已知选择器找不到弹题时，用宽松特征看看页面里到底有没有类似元素。
++ *
++ * 这类弹题出现概率低、难复现，一旦「该出现时什么都没发生」就无法定位。
++ * 本函数把疑似元素的 class / id / 文本 / 片段 HTML 一并返回，调用方负责去重后再打日志。
++ *
++ * @returns 有疑似元素时返回描述，否则 undefined
++ */
++export function probeVideoQuizCandidates(rootDoc: Document): string | undefined {
++	for (const d of collectAccessibleDocuments(rootDoc)) {
++		let hits: Element[] = [];
++		try {
++			hits = Array.from(
++				d.querySelectorAll('[class*=videoquiz], [id*=videoquiz], [class*=ans-video], [name*=videoquiz]')
++			).slice(0, 3);
++		} catch {
++			continue;
++		}
++		if (hits.length) {
++			const first = hits[0] as HTMLElement;
++			return (
++				'发现 ' + hits.length + ' 个疑似元素；首个 <' + first.tagName.toLowerCase() + '> class=' +
++				JSON.stringify(first.className) + ' id=' + JSON.stringify(first.id) +
++				' 文本=' + JSON.stringify((first.innerText || '').slice(0, 80)) +
++				' HTML=' + (first.outerHTML || '').slice(0, 400)
++			);
++		}
++	}
++	return undefined;
 +}
 +
 +/**
@@ -11969,10 +12089,10 @@ index 0000000..f5f68c1
 +}
 diff --git a/tests/cx-videoquiz.test.ts b/tests/cx-videoquiz.test.ts
 new file mode 100644
-index 0000000..64996a0
+index 0000000..bc8f8a9
 --- /dev/null
 +++ b/tests/cx-videoquiz.test.ts
-@@ -0,0 +1,197 @@
+@@ -0,0 +1,218 @@
 +/**
 + * 视频内弹题：定位与选项选择测试
 + *
@@ -11992,7 +12112,8 @@ index 0000000..64996a0
 +	pickVideoQuizOptions,
 +	isMultipleChoice,
 +	optionInput,
-+	readOptionMarks
++	readOptionMarks,
++	probeVideoQuizCandidates
 +} from '../packages/scripts/src/utils/cx-videoquiz';
 +
 +let pass = 0;
@@ -12121,6 +12242,26 @@ index 0000000..64996a0
 +	if (single) {
 +		ok('label 形态单选不被误判为多选', isMultipleChoice(single) === false);
 +	}
++}
++
++console.log('\n=== ③.8 找不到弹题时的宽松诊断（用于低概率问题定位） ===');
++{
++	const top = document;
++	top.body.innerHTML = '<div class="video"><video id="video"></video></div>';
++	ok('页面没有疑似元素时返回 undefined', probeVideoQuizCandidates(top) === undefined);
++
++	// 结构变形：class 名变了，已知选择器匹配不到，但宽松特征能发现
++	top.body.innerHTML = '<div class="ans-videoquiz-new-version"><span>题目变形结构</span></div>';
++	const hint = probeVideoQuizCandidates(top);
++	ok('★ 已知选择器找不到、但宽松特征能发现疑似元素', !!hint, String(hint));
++	ok('诊断信息里带上了 class 与片段 HTML', !!hint && hint.includes('ans-videoquiz-new-version') && hint.includes('HTML='));
++
++	// 嵌套 iframe 里也要能诊断到
++	top.body.innerHTML = '';
++	const deep = addFrame(addFrame(top));
++	deep.body.innerHTML = '<div id="videoquiz-wrapper-2"><span>嵌套里的变形弹题</span></div>';
++	const hint2 = probeVideoQuizCandidates(top);
++	ok('嵌套 iframe 中的疑似元素也能被诊断到', !!hint2 && hint2.includes('videoquiz-wrapper-2'), String(hint2));
 +}
 +
 +console.log('\n=== ④ 选项匹配：单选 / 判断 / 多选 ===');
