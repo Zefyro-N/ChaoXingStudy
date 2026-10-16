@@ -1199,3 +1199,72 @@ document.querySelector('iframe').contentDocument
 `视频内弹题策略=...，已开始监听。` → `检测到视频内弹题：选项 N 个...` → `已提交：...`；
 若中途只出现「未按已知选择器找到弹题，但页面存在疑似元素 → ...」，则说明是选择器不匹配，
 该日志会直接给出真实结构。
+
+
+## 26. 发布到 GitHub（M24）
+
+### 26.1 发布结果
+
+| 项 | 值 |
+|---|---|
+| 仓库 | **https://github.com/Zefyro-N/CXStudy**（公开，默认分支 `main`） |
+| 提交 | `3e946b6` 首版 → `960df76` 许可证/行尾修正 |
+| 内容 | `.gitattributes` / `.gitignore` / `LICENSE` / `README.md` / `ocs.user.js` / `patches/`（README + patch） |
+| 安装链接 | `https://raw.githubusercontent.com/Zefyro-N/CXStudy/main/ocs.user.js` |
+| 许可证识别 | GitHub 显示 **MIT** ✅ |
+| 提交者身份 | `Zefyro-N <Zefyro-N@users.noreply.github.com>`（未使用任何个人邮箱） |
+
+产物横幅已补 `@homepage` / `@source` / `@supportURL` / `@updateURL` / `@downloadURL`，
+指向该仓库，安装后可自动检查更新。**补这 5 行后已用 `Compare-Object` 验证：
+新旧产物差异恰为 5 行横幅，运行时代码逐字节不变。**
+
+### 26.2 发布前安全审计（结论：无泄漏）
+
+| 检查项 | 结果 |
+|---|---|
+| `dist/ocs.user.js` 密钥特征 | `Bearer ` 仅一处，为 `Authorization: "Bearer " + key`（变量引用）✅ |
+| `sk-` 类密钥 | 全仓 5 处命中全为良性：1 处是超星自身 CSS id（`#homework-automation-risk-challenge` 内含 `sk-`），其余为文档里的扫描正则 ✅ |
+| 课程/账号标识（courseId、clazzid、cpi、uid） | 产物 0 处 ✅ |
+| Cookie / 会话 | 0 处 ✅ |
+| 本地路径（`E:\Code`、`D:\PI`、`C:\Users`） | 产物 0 处 ✅ |
+| `.env` | 不存在；内层仓库 `.gitignore` 已忽略 ✅ |
+| **git 历史中删除过的文件** | **从未删除过任何文件** → 历史无残留 ✅ |
+| `git add -A` 会纳入的未跟踪文件 | 无 ✅ |
+| 忽略规则覆盖 | `.logs/`、`.browser-profile-edge/`（含 Cookie）、`recon/`、`refs/`、`dist/`、`.publish/` 全部已忽略 ✅ |
+
+**唯一隐私项（已规避）**：本仓提交历史含 8 个提交署名为
+`zeper_night <zeper_night@qq.com>`（真实身份）。**该邮箱不在产物里，只在 `.git` 元数据中**。
+由于发布采用的是**全新仓库 + 全新提交**，该历史未被带过去 ✅。
+（注：GitHub 的"隐藏邮箱"设置只对将来提交生效，改不了已有提交。）
+
+### 26.3 发布后验证发现并修掉的两个问题
+
+**问题 1：上线内容与本地构建相差 47 字节**
+
+产物是「esbuild 输出(LF) + 拼接的入口文件(CRLF)」的**混用行尾**，提交时被 git 规范化，
+导致用户从 raw 拉取的内容与本地不一致（仅行尾，功能无影响，但不该存在）。
+
+修复：在写入版权声明的同一次读写里把产物统一为 LF，并新增
+`.gitattributes`（`* -text`）禁用行尾自动转换。验证：产物 `CRLF=0`，
+线上与本地 **SHA256 完全相同**。
+
+**问题 2：GitHub 把许可证识别为 `NOASSERTION`**
+
+原因是 `LICENSE` 里在许可正文前插入了衍生说明段落，破坏了标准 MIT 结构。
+修复：改为标准 MIT（标题 + 两行版权 + 许可正文），衍生说明移至 README
+与脚本内注入的版权声明（合规信息未减少）。验证：GitHub 显示 **MIT** ✅。
+
+### 26.4 凭据处理（审计级）
+
+- 令牌**全程只在进程环境变量中使用**：未写入任何文件、未进 `.git/config`、
+  未进 remote URL、未进任何日志（已复查确认）
+- 推送使用 `git -c credential.helper=`（置空）**确保不落盘**
+- remote 使用无令牌 URL：`https://github.com/Zefyro-N/CXStudy.git`
+
+**⚠️ 待办：用户应撤销该令牌。** 它曾以明文出现在对话中，属已暴露状态；
+撤销不影响已推送的内容。
+
+### 26.5 发布目录的维护方式
+
+公开仓库内容在 `.publish/`（外层仓库已 gitignore，是独立 git 仓库）：
+改动完成后同步 `dist/ocs.user.js` 到该目录 → 提交 → `git push origin main` 即可发布新版本。

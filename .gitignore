@@ -34,3 +34,6 @@ node_modules/
 __pycache__/
 *.pyc
 dist/
+
+# 待发布的公开仓库内容（独立 git 仓库，避免外层仓库嵌套）
+.publish/

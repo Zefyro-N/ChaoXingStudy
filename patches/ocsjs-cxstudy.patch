@@ -11737,7 +11737,7 @@ index 74b7d18..0000000
 -	readNotes
 -};
 diff --git a/scripts/build-core.js b/scripts/build-core.js
-index 2d2f0e9..6f1863d 100644
+index 2d2f0e9..98f969e 100644
 --- a/scripts/build-core.js
 +++ b/scripts/build-core.js
 @@ -6,7 +6,7 @@ const util = require('util');
@@ -11855,7 +11855,7 @@ index 2d2f0e9..6f1863d 100644
  			},
  			entry: path.join(__dirname, '../packages/scripts/entry.js'),
  			dist: path.join(__dirname, distPath, 'ocs.user.js')
-@@ -122,8 +147,18 @@ async function createUserJs() {
+@@ -122,8 +147,20 @@ async function createUserJs() {
  	const officialOpts = createOptions();
  	console.log('CreateUserScript: ', officialOpts.metadata.name, officialOpts.dist);
  	await createUserScript(officialOpts);
@@ -11868,15 +11868,17 @@ index 2d2f0e9..6f1863d 100644
 +		'// Copyright (c) 2022 enncy — OCS 网课助手 (https://github.com/ocsjs/ocsjs)',
 +		'// 本脚本为其衍生的超星学习通专用分支，依 MIT 协议分发；完整许可证见仓库根目录 LICENSE 文件。'
 +	].join('\n');
-+	const userJsContent = fs.readFileSync(officialOpts.dist, 'utf8');
-+	fs.writeFileSync(
-+		officialOpts.dist,
-+		userJsContent.replace('// ==/UserScript==', '// ==/UserScript==\n\n' + LICENSE_NOTICE)
-+	);
++	const userJsContent = fs
++		.readFileSync(officialOpts.dist, 'utf8')
++		// 统一行尾为 LF：包体是 LF，而拼接进来的入口文件是 CRLF，混用会导致
++		// 「本地构建产物」与「提交到仓库后拉取到的内容」逐字节不一致。
++		.replace(/\r\n/g, '\n')
++		.replace('// ==/UserScript==', '// ==/UserScript==\n\n' + LICENSE_NOTICE);
++	fs.writeFileSync(officialOpts.dist, userJsContent);
  
  	/** 创建调试脚本 */
  	const devOpts = createOptions();
-@@ -141,18 +176,6 @@ async function createUserJs() {
+@@ -141,18 +178,6 @@ async function createUserJs() {
  	);
  	console.log('createUserScript: ', devOpts.metadata.name, devOpts.dist);
  	await createUserScript(devOpts);
