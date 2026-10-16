@@ -963,3 +963,41 @@ catch 分支最初把 `\n` 写成了 `
 **待用户冒烟验证**：本次删改面很大（7503 行平台代码 + 164 行死代码 + 更新模块），
 编译与测试通过不代表运行时无回归。需重新安装 `dist/ocs.user.js`（488,050 bytes）
 后在真实课程页确认：面板正常渲染、视频继续推进、章节测验仍能作答（含图片题）。
+
+
+## 22. 移除桌面软件桥接（M21）
+
+用户确认「用不到」，故删除的不只是那一处外链，而是整条链路：
+
+| 删除项 | 位置 | 说明 |
+|---|---|---|
+| 「🔄️ 软件配置同步」脚本 | background.ts（219 行） | `docs.ocsjs.com/docs/app` 外链所在的功能块 |
+| `state.app` | background.ts（7 行） | 仅被上述脚本使用 |
+| 已无调用点的 `methods()` | background.ts（8 行） | `getRemotePlaywrightCurrentPage` 从未被调用 |
+| `show_debug_cursor` 配置 | background.ts（5 行） | 仅被上述已删方法读取 |
+| `localQuestionCaches.extra` | background.ts | `extra: { appConfigSync: false }`，已无消费者 |
+| `RemotePlaywright` 类 | `packages/core/src/utils/playwright.ts` | 及其在 core/utils/index.ts 的导出 |
+| `$playwright` | `packages/scripts/src/utils/app.ts` | **本即死代码**：从未被任何地方引用 |
+| `@connect localhost` | build-core.js | 桥接的跨域权限 |
+
+**background.ts：1104 → 865 行**；产物 **488,050 → 471,449 bytes**；横幅只剩 3 个 `@connect`
+（`ocsjs.com` 字体参照表 / `opencode.ai` / `api.deepseek.com`）。
+产物内已无 `localhost`、`docs.ocsjs.com`、`RemotePlaywright`、`软件配置同步` 任何残留。
+
+**保留** `localQuestionCaches`（答题缓存）：经查是活跃功能，被 `common.ts` 用于避免重复请求模型，非死代码。
+
+### 22.1 一次应当记下的操作失误
+
+用「找到锚点后取**第一处**匹配再配平大括号」的方式删除代码块时，误删了 background.ts 中
+**另一个同名** `methods() {`（HEAD 第 237 行，140 行），而非目标（第 631 行）。
+发现方式：删除后统计残留标识符，`RemotePlaywright` 仍有 2 处——与预期不符。
+
+**正确做法**：删除目标块时，(1) 锚点必须唯一（先 `count()` 断言为 1）；
+(2) 能用完整文本精确匹配就不要用「首次出现 + 配平」；
+(3) 删完**立刻统计被删标识符的残留数**并断言为 0。
+本次已回退 background.ts 至已提交状态后用精确文本重做。
+
+### 22.2 验证
+
+`gulp exit=0`；testResolver 164/164；cx-model.handler 26/26；平台范围校验通过。
+补丁 412,819 bytes / 27 文件 / 8 处删除，反向应用自检通过。

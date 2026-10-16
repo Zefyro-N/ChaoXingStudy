@@ -81,6 +81,360 @@ index 3016971..7239986 100644
       *
       *
       * @param type 题目类型
+diff --git a/packages/core/src/utils/index.ts b/packages/core/src/utils/index.ts
+index a5e72af..d3ff06a 100644
+--- a/packages/core/src/utils/index.ts
++++ b/packages/core/src/utils/index.ts
+@@ -1,4 +1,3 @@
+ export * from './common';
+ export * from './string';
+ export * from './const';
+-export * from './playwright';
+diff --git a/packages/core/src/utils/playwright.ts b/packages/core/src/utils/playwright.ts
+deleted file mode 100644
+index 15fd791..0000000
+--- a/packages/core/src/utils/playwright.ts
++++ /dev/null
+@@ -1,339 +0,0 @@
+-import type { Page } from 'playwright-core';
+-import { request } from '../core/utils';
+-import { $ } from './common';
+-import { $elements, $message } from 'easy-us';
+-
+-export type Base64 = string;
+-
+-interface ClickOptions {
+-	/**
+-	 * Defaults to `left`.
+-	 */
+-	button?: 'left' | 'right' | 'middle';
+-
+-	/**
+-	 * defaults to 1. See [UIEvent.detail].
+-	 */
+-	clickCount?: number;
+-
+-	/**
+-	 * Time to wait between `mousedown` and `mouseup` in milliseconds. Defaults to 0.
+-	 */
+-	delay?: number;
+-
+-	/**
+-	 * Whether to bypass the [actionability](https://playwright.dev/docs/actionability) checks. Defaults to `false`.
+-	 */
+-	force?: boolean;
+-
+-	/**
+-	 * Modifier keys to press. Ensures that only these modifiers are pressed during the operation, and then restores
+-	 * current modifiers back. If not specified, currently pressed modifiers are used.
+-	 */
+-	modifiers?: Array<'Alt' | 'Control' | 'Meta' | 'Shift'>;
+-
+-	/**
+-	 * Actions that initiate navigations are waiting for these navigations to happen and for pages to start loading. You
+-	 * can opt out of waiting via setting this flag. You would only need this option in the exceptional cases such as
+-	 * navigating to inaccessible pages. Defaults to `false`.
+-	 */
+-	noWaitAfter?: boolean;
+-
+-	/**
+-	 * A point to use relative to the top-left corner of element padding box. If not specified, uses some visible point of
+-	 * the element.
+-	 */
+-	position?: {
+-		x: number;
+-
+-		y: number;
+-	};
+-
+-	/**
+-	 * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
+-	 * element, the call throws an exception.
+-	 */
+-	strict?: boolean;
+-
+-	/**
+-	 * Maximum time in milliseconds. Defaults to `0` - no timeout. The default value can be changed via `actionTimeout`
+-	 * option in the config, or by using the
+-	 * [browserContext.setDefaultTimeout(timeout)](https://playwright.dev/docs/api/class-browsercontext#browser-context-set-default-timeout)
+-	 * or [page.setDefaultTimeout(timeout)](https://playwright.dev/docs/api/class-page#page-set-default-timeout) methods.
+-	 */
+-	timeout?: number;
+-
+-	/**
+-	 * When set, this method only performs the [actionability](https://playwright.dev/docs/actionability) checks and skips the action. Defaults
+-	 * to `false`. Useful to wait until the element is ready for the action without performing it.
+-	 */
+-	trial?: boolean;
+-}
+-
+-export interface RemotePage {
+-	click: (selectorOrElement: string | Element, options?: ClickOptions) => Promise<void>;
+-	check: Page['check'];
+-	dblclick: Page['dblclick'];
+-	bringToFront: Page['bringToFront'];
+-	dragAndDrop: Page['dragAndDrop'];
+-	inputValue: Page['inputValue'];
+-	fill: Page['fill'];
+-	focus: Page['focus'];
+-	hover: Page['hover'];
+-	screenshot: Page['screenshot'];
+-	selectOption: Page['selectOption'];
+-	setInputFiles: Page['setInputFiles'];
+-	tap: Page['tap'];
+-	press: Page['press'];
+-	reload: (...args: Parameters<Page['reload']>) => Promise<Base64>;
+-	waitForRequest(...args: Parameters<Page['waitForRequest']>): Promise<{
+-		url: string;
+-		method: string;
+-		headers: Record<string, string>;
+-		postData: string;
+-	}>;
+-	waitForResponse(...args: Parameters<Page['waitForResponse']>): Promise<{
+-		body: string;
+-		headers: Record<string, string>;
+-		status: number;
+-		url: string;
+-	}>;
+-	waitForSelector(...args: Parameters<Page['waitForSelector']>): Promise<void>;
+-	['keyboard.type']: Page['keyboard']['type'];
+-	['keyboard.press']: Page['keyboard']['press'];
+-	['mouse.wheel']: Page['mouse']['wheel'];
+-	['mouse.click']: Page['mouse']['click'];
+-	['mouse.dblclick']: Page['mouse']['dblclick'];
+-	['mouse.down']: Page['mouse']['down'];
+-	['mouse.up']: Page['mouse']['up'];
+-	['mouse.move']: Page['mouse']['move'];
+-}
+-
+-const ListOfActions = [
+-	'click',
+-	'check',
+-	'dblclick',
+-	'bringToFront',
+-	'dragAndDrop',
+-	'fill',
+-	'focus',
+-	'hover',
+-	'screenshot',
+-	'selectOption',
+-	'setInputFiles',
+-	'tap',
+-	'press',
+-	'reload',
+-	'waitForRequest',
+-	'waitForResponse',
+-	'waitForSelector',
+-	'keyboard.type',
+-	'keyboard.press',
+-	'mouse.wheel',
+-	'mouse.click',
+-	'mouse.dblclick',
+-	'mouse.down',
+-	'mouse.up',
+-	'mouse.move'
+-];
+-
+-const mouseIdleRequireActions = [
+-	'click',
+-	'dblclick',
+-	'dragAndDrop',
+-	'fill',
+-	'hover',
+-	'tap',
+-	'press',
+-	'keyboard.type',
+-	'keyboard.press',
+-	'mouse.wheel',
+-	'mouse.click',
+-	'mouse.dblclick',
+-	'mouse.down',
+-	'mouse.up',
+-	'mouse.move'
+-];
+-
+-export class RemotePlaywright {
+-	private static authToken = '';
+-	private static currentPage: RemotePage | undefined = undefined;
+-
+-	static async getRemotePage(
+-		show_debug_cursor?: boolean,
+-		logger?: (...args: any[]) => void
+-	): Promise<RemotePage | undefined> {
+-		if (this.currentPage) {
+-			return this.currentPage;
+-		}
+-		/**
+-		 * OCS桌面端后端无法拦截 GM_xmlhttpRequest ，所以这里使用 fetch 请求动作执行，然后后端根据key判断是否允许执行
+-		 */
+-		if (!this.authToken) {
+-			try {
+-				this.authToken = await request('http://localhost:15319/get-actions-key', {
+-					type: 'GM_xmlhttpRequest',
+-					method: 'get',
+-					responseType: 'text'
+-				});
+-				this.currentPage = this.createRemotePage(this.authToken, { show_debug_cursor, logger });
+-				return this.currentPage;
+-			} catch (e) {
+-				console.log(e);
+-				return undefined;
+-			}
+-		} else {
+-			this.currentPage = this.createRemotePage(this.authToken, { show_debug_cursor, logger });
+-			return this.currentPage;
+-		}
+-	}
+-
+-	private static createRemotePage(
+-		authToken: string,
+-		configs?: { show_debug_cursor?: boolean; logger?: (...args: any[]) => void }
+-	) {
+-		const page = Object.create({});
+-		configs = configs || {};
+-		configs.logger = configs.logger || console.debug;
+-		for (const property of ListOfActions) {
+-			Reflect.set(page, property, async (...args: any[]) => {
+-				let data;
+-
+-				if (mouseIdleRequireActions.includes(property)) {
+-					// 等待鼠标静止/空闲
+-					await waitForMouseIdle();
+-				}
+-
+-				if (property === 'click') {
+-					if (args[0] instanceof Element) {
+-						const el = args[0] as HTMLElement;
+-						const options = (args[1] || {}) as ClickOptions;
+-
+-						await scrollToElement(el);
+-						// 如果是传入的元素对象，那么就解析元素的坐标进行点击
+-						// 这里滑动的时间可能会比较长，取决于页面的长度，所以这里多等待一点时间
+-						await $.sleep(500);
+-						const rect = el.getBoundingClientRect();
+-
+-						// 移动可能阻挡点击的脚本面板
+-						const elFromPoint = $elements.root?.elementFromPoint(
+-							rect.left + rect.width / 2,
+-							rect.top + rect.height / 2
+-						);
+-						if (elFromPoint && $elements.root && $elements.root.contains(elFromPoint)) {
+-							// 如果元素在根节点内，则隐藏面板
+-							const panel = $elements.root.querySelector<HTMLElement>('container-element');
+-
+-							if (panel) {
+-								$message.info({ content: '检测到脚本阻挡点击位置，已自动移开', duration: 2 });
+-								await $.transition(panel, 'left', 0.1, rect.left + rect.width / 2 + 100 + 'px', { reset_ms: 1 });
+-							}
+-						}
+-
+-						// 显示鼠标位置
+-						if (configs?.show_debug_cursor) {
+-							showMousePointer(el);
+-						}
+-
+-						data = {
+-							page: window.location.href,
+-							property: 'mouse.click',
+-							args: [
+-								rect.left + rect.width / 2,
+-								rect.top + rect.height / 2,
+-								{
+-									button: options.button,
+-									clickCount: options.clickCount,
+-									delay: options.delay
+-								}
+-							]
+-						};
+-					} else if (typeof args[0] === 'string') {
+-						const el = document.querySelector(args[0]) as HTMLElement;
+-						if (el) {
+-							await scrollToElement(el);
+-							// 显示鼠标位置
+-							if (configs?.show_debug_cursor) {
+-								showMousePointer(el);
+-							}
+-						}
+-					}
+-				}
+-
+-				if (!data) {
+-					data = { page: window.location.href, property: property, args: args };
+-				}
+-
+-				configs?.logger?.('[RP]: ', JSON.stringify(data));
+-
+-				try {
+-					// 这里为什么不写前缀 http://localhost:15319，因为有 Content-Security-Policy ， 这里我们借用后台的URL代理去进行处理，只要包含 ocs-script-actions 即可轻松绕过 Content-Security-Policy 限制
+-					const res = await request('/ocs-script-actions', {
+-						type: 'fetch',
+-						method: 'post',
+-						responseType: ['waitForRequest', 'waitForResponse', 'reload'].includes(property) ? 'json' : 'text',
+-						headers: {
+-							'auth-token': authToken
+-						},
+-						data: data
+-					});
+-					return res;
+-				} catch (e) {
+-					configs?.logger?.('[RP-ERROR]: ', JSON.stringify(data));
+-					return undefined;
+-				}
+-			});
+-		}
+-		console.log(page);
+-
+-		return page;
+-	}
+-}
+-
+-function scrollToElement(el: HTMLElement) {
+-	el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+-	// 等待动作完成
+-	return $.sleep(200);
+-}
+-
+-function showMousePointer(el: HTMLElement) {
+-	setTimeout(() => {
+-		const rect = el.getBoundingClientRect();
+-		// 显示鼠标位置
+-		const div = document.createElement('div');
+-		div.textContent = '';
+-		div.style.position = 'fixed';
+-		div.style.zIndex = '99999';
+-		div.style.width = '20px';
+-		div.style.height = '20px';
+-		div.style.border = '2px solid red';
+-		div.style.borderRadius = '50%';
+-		div.style.left = rect.left + rect.width / 2 - 11 + 'px';
+-		div.style.top = rect.top + rect.height / 2 - 11 + 'px';
+-		document.body.append(div);
+-		setTimeout(() => {
+-			div.remove();
+-		}, 500);
+-	}, 100);
+-}
+-
+-function waitForMouseIdle(timeout: number = 200): Promise<void> {
+-	return new Promise((resolve) => {
+-		let timer: any;
+-		const default_timer = setTimeout(() => {
+-			window.removeEventListener('mousemove', onMouseMove);
+-			resolve();
+-		}, timeout); // 最多等timeout + 1000ms
+-		function onMouseMove() {
+-			clearTimeout(default_timer);
+-			if (timer) {
+-				clearTimeout(timer);
+-			}
+-			timer = setTimeout(() => {
+-				window.removeEventListener('mousemove', onMouseMove);
+-				resolve();
+-			}, timeout);
+-		}
+-		window.addEventListener('mousemove', onMouseMove);
+-	});
+-}
 diff --git a/packages/scripts/entry.common.js b/packages/scripts/entry.common.js
 deleted file mode 100644
 index 7bc949f..0000000
@@ -257,11 +611,12 @@ index b443d33..7fe48b1 100644
 +	return [CXProject, CommonProject, BackgroundProject];
  }
 diff --git a/packages/scripts/src/projects/background.ts b/packages/scripts/src/projects/background.ts
-index c9f9c7a..f106865 100644
+index c9f9c7a..7ed3d86 100644
 --- a/packages/scripts/src/projects/background.ts
 +++ b/packages/scripts/src/projects/background.ts
 @@ -1,6 +1,5 @@
- import { RemotePlaywright, request } from '@ocsjs/core';
+-import { RemotePlaywright, request } from '@ocsjs/core';
++import { request } from '@ocsjs/core';
  import type { SearchInformation, SimplifyWorkResult } from '@ocsjs/core';
 -import { markdown } from '../utils/markdown';
  import {
@@ -279,10 +634,255 @@ index c9f9c7a..f106865 100644
  import { RenderScript } from '../render';
  import { SearchInfosElement } from '../elements/search.infos';
  import { $render } from '../utils/render';
-@@ -597,147 +594,6 @@ export const BackgroundProject = Project.create({
+@@ -29,13 +26,6 @@ const state = {
+ 			logs: 0 as StoreListenerType
+ 		}
+ 	},
+-	app: {
+-		listenerIds: {
+-			sync: 0 as StoreListenerType,
+-			connected: 0 as StoreListenerType,
+-			closeSync: 0 as StoreListenerType
+-		}
+-	}
+ };
+ 
+ export type LogType = 'log' | 'info' | 'debug' | 'warn' | 'error';
+@@ -231,10 +221,7 @@ export const BackgroundProject = Project.create({
+ 				 * 题库缓存
+ 				 */
+ 				localQuestionCaches: {
+-					defaultValue: [] as QuestionCache[],
+-					extra: {
+-						appConfigSync: false
+-					}
++					defaultValue: [] as QuestionCache[]
  				}
+ 			},
+ 			methods() {
+@@ -378,366 +365,6 @@ export const BackgroundProject = Project.create({
+ 				};
  			}
  		}),
+-		appConfigSync: new Script({
+-			name: '🔄️ 软件配置同步',
+-			namespace: 'background.app',
+-			matches: [['所有页面', /./]],
+-			// 如果是在OCS软件中则不显示此页面
+-			hideInPanel: $gm.getInfos() === undefined,
+-			configs: {
+-				notes: {
+-					defaultValue: $ui.notes([
+-						[
+-							h('span', [
+-								'如果您使用',
+-								h('a', { href: 'https://docs.ocsjs.com/docs/app', target: '_blank' }, 'OCS桌面软件'),
+-								'启动浏览器，并使用此脚本，'
+-							]),
+-							'我们会同步软件中的配置到此脚本上，方便多个浏览器的管理。',
+-							'窗口设置以及后台面板所有设置不会进行同步。'
+-						],
+-						'如果不是，您可以忽略此脚本。'
+-					]).outerHTML
+-				},
+-				sync_status: {
+-					defaultValue: 'unconnect' as 'not_playwright_environment' | 'unconnect' | 'not_open_sync' | 'synced'
+-				},
+-				closeSync: {
+-					defaultValue: false,
+-					label: '关闭同步',
+-					attrs: {
+-						type: 'checkbox'
+-					}
+-				}
+-			},
+-
+-			onrender({ panel }) {
+-				// 同步面板不会被锁定
+-				panel.lockWrapper.remove();
+-				panel.configsContainer.classList.remove('lock');
+-
+-				const update = () => {
+-					if (this.cfg.closeSync) {
+-						const tip = h('div', { className: 'notes card' }, ['已关闭同步。']);
+-						panel.body.replaceChildren(h('hr'), tip);
+-					} else if (this.cfg.sync_status === 'synced') {
+-						const tip = h('div', { className: 'notes card' }, [`已成功同步软件中的配置.`]);
+-						panel.body.replaceChildren(h('hr'), tip);
+-					} else if (this.cfg.sync_status === 'unconnect') {
+-						const tip = h('div', { className: 'notes card' }, ['未同步软件配置，可能是桌面软件未启动。']);
+-						panel.body.replaceChildren(h('hr'), tip);
+-					} else if (this.cfg.sync_status === 'not_playwright_environment') {
+-						const tip = h('div', { className: 'notes card' }, ['当前浏览器不是由桌面端软件启动，无法同步配置。']);
+-						panel.body.replaceChildren(h('hr'), tip);
+-					} else if (this.cfg.sync_status === 'not_open_sync') {
+-						const tip = h('div', { className: 'notes card' }, ['桌面端软件未开启配置同步功能']);
+-						panel.body.replaceChildren(h('hr'), tip);
+-					} else if (this.cfg.sync_status === 'empty_config') {
+-						const tip = h('div', { className: 'notes card' }, ['已成功连接到软件，但配置为空。']);
+-						panel.body.replaceChildren(h('hr'), tip);
+-					} else {
+-						const tip = h('div', { className: 'notes card' }, ['同步状态未知，请稍后重试。']);
+-						panel.body.replaceChildren(h('hr'), tip);
+-					}
+-				};
+-				update();
+-
+-				this.offConfigChange(state.app.listenerIds.sync);
+-				this.offConfigChange(state.app.listenerIds.connected);
+-				this.offConfigChange(state.app.listenerIds.closeSync);
+-				state.app.listenerIds.connected = this.onConfigChange('sync_status', update);
+-				state.app.listenerIds.closeSync = this.onConfigChange('closeSync', (closeSync) => {
+-					if (closeSync) {
+-						this.cfg.sync_status = 'not_open_sync';
+-						$message.success({ content: '已关闭同步，刷新页面后生效' });
+-					}
+-				});
+-			},
+-			async onactive() {
+-				if ($.isInTopWindow()) {
+-					if (this.cfg.closeSync) {
+-						$console.log('配置同步已关闭');
+-						return;
+-					}
+-					this.cfg.sync_status = 'unconnect';
+-					try {
+-						const res = await request('http://localhost:15319/browser', {
+-							type: 'GM_xmlhttpRequest',
+-							method: 'get',
+-							responseType: 'json'
+-						});
+-						if (!res) {
+-							this.cfg.sync_status = 'unconnect';
+-							return;
+-						}
+-						const open_sync = await request('http://localhost:15319/is-browser-config-sync', {
+-							type: 'GM_xmlhttpRequest',
+-							method: 'get',
+-							responseType: 'text'
+-						});
+-
+-						if (open_sync !== 'true') {
+-							this.cfg.sync_status = 'not_open_sync';
+-							return;
+-						}
+-
+-						if (Object.keys(res).length === 0) {
+-							this.cfg.sync_status = 'not_open_sync';
+-							return;
+-						}
+-
+-						// 自OCS软件 2.8.21 版本后特殊字段，用于标记不进行同步的字段
+-						// 通过OCS playwright 启动的浏览器会自动返回数据
+-						// 不使用 http 防止某些 Content-Security-Policy 限制
+-						const environment_res = await request('/ocs-environment', {
+-							type: 'fetch',
+-							method: 'get'
+-						});
+-						const environment = environment_res?.environment;
+-						if (!environment || environment !== 'playwright') {
+-							this.cfg.sync_status = 'not_playwright_environment';
+-							return;
+-						}
+-
+-						// 排除几个特殊的设置
+-						for (const key in res) {
+-							if (Object.prototype.hasOwnProperty.call(res, key)) {
+-								// 排除渲染脚本的设置
+-								if (RenderScript.namespace && key.startsWith(RenderScript.namespace)) {
+-									Reflect.deleteProperty(res, key);
+-								}
+-								// 排除后台脚本的设置
+-								for (const scriptKey in BackgroundProject.scripts) {
+-									if (Object.prototype.hasOwnProperty.call(BackgroundProject.scripts, scriptKey)) {
+-										const script: Script = Reflect.get(BackgroundProject.scripts, scriptKey);
+-										if (script.namespace && key.startsWith(script.namespace)) {
+-											Reflect.deleteProperty(res, key);
+-										}
+-									}
+-								}
+-							}
+-						}
+-
+-						// 排除那些不用同步的配置
+-						for (const project of definedProjects()) {
+-							for (const key in project.scripts) {
+-								if (Object.prototype.hasOwnProperty.call(project.scripts, key)) {
+-									const script = project.scripts[key];
+-									for (const ck in script.configs) {
+-										if (Object.prototype.hasOwnProperty.call(script.configs, ck)) {
+-											if (script.configs[ck].extra?.appConfigSync === false) {
+-												Reflect.deleteProperty(res, $.namespaceKey(script.namespace, ck));
+-											}
+-										}
+-									}
+-								}
+-							}
+-						}
+-
+-						// 同步所有的配置
+-						for (const key in res) {
+-							if (Object.prototype.hasOwnProperty.call(res, key)) {
+-								$store.set(key, res[key]);
+-							}
+-						}
+-
+-						// 锁定面板
+-						for (const project of definedProjects()) {
+-							// 排除后台脚本的锁定
+-							if (project.name === BackgroundProject.name) {
+-								continue;
+-							}
+-							for (const key in project.scripts) {
+-								if (Object.prototype.hasOwnProperty.call(project.scripts, key)) {
+-									const script = project.scripts[key];
+-									const originalRender = script.onrender;
+-									// 重新定义渲染函数。在渲染后添加锁定面板的代码
+-									script.onrender = ({ panel, header }) => {
+-										originalRender?.({ panel, header });
+-										if (panel.configsContainer.children.length) {
+-											panel.configsContainer.classList.add('lock');
+-											panel.lockWrapper.style.width = (panel.configsContainer.clientWidth ?? panel.clientWidth) + 'px';
+-											panel.lockWrapper.style.height =
+-												(panel.configsContainer.clientHeight ?? panel.clientHeight) + 'px';
+-											panel.configsContainer.prepend(panel.lockWrapper);
+-
+-											panel.lockWrapper.title =
+-												'🚫已同步OCS桌面版软件配置，如需修改请在桌面版软件的左侧栏设置-通用设置-OCS配置，中进行修改。\n\n或者前往脚本悬浮窗:后台-软件配置同步 关闭配置同步功能。\n\n可双击强制修改，并关闭同步配置';
+-											panel.lockWrapper = $ui.tooltip(panel.lockWrapper);
+-											panel.lockWrapper.addEventListener('dblclick', () => {
+-												panel.configsContainer.classList.remove('lock');
+-												panel.lockWrapper.remove();
+-												script.onrender = originalRender;
+-												$message.warn({
+-													content: '已解除配置同步，可正常修改配置。想开启同步请前往：后台-软件配置同步',
+-													duration: 10
+-												});
+-												this.cfg.closeSync = true;
+-												if (script.panel && script.header) {
+-													script.onrender?.({ panel: script.panel, header: script.header });
+-												}
+-											});
+-										}
+-									};
+-									// 重新执行渲染
+-									if (script.panel && script.header) {
+-										script.onrender({ panel: script.panel, header: script.header });
+-									}
+-								}
+-							}
+-						}
+-
+-						this.cfg.sync_status = 'synced';
+-					} catch (e) {
+-						console.error(e);
+-						this.cfg.sync_status = 'unconnect';
+-						// 可能是桌面软件未启动，或者未开启配置同步功能，此时直接隐藏脚本面板，防止用户误操作
+-						this.hidePanel();
+-					}
+-				}
+-			}
+-		}),
 -		update: new Script({
 -			name: '📥 更新模块',
 -			matches: [['所有页面', /.*/]],
@@ -427,7 +1027,32 @@ index c9f9c7a..f106865 100644
  		dev: new Script({
  			name: '🛠️ 开发者调试',
  			namespace: 'background.dev',
-@@ -1133,19 +989,9 @@ export const BackgroundProject = Project.create({
+@@ -761,24 +388,12 @@ export const BackgroundProject = Project.create({
+ 				notes: {
+ 					defaultValue: '开发人员调试用。<br>注入OCS_CONTEXT全局变量。用户可忽略此页面。'
+ 				},
+-				show_debug_cursor: {
+-					defaultValue: true,
+-					label: '软件辅助点击时显示鼠标位置',
+-					attrs: { type: 'checkbox' }
+-				},
+ 				enable_answerer_debug: {
+ 					defaultValue: true,
+ 					label: '开启答题日志输出',
+ 					attrs: { type: 'checkbox' }
+ 				}
+ 			},
+-			methods() {
+-				return {
+-					getRemotePlaywrightCurrentPage: () => {
+-						return RemotePlaywright.getRemotePage(this.cfg.show_debug_cursor, console.debug);
+-					}
+-				};
+-			},
+ 			onrender({ panel }) {
+ 				const injectBtn = h('button', { className: 'base-style-button' }, '点击注入全局变量');
+ 				injectBtn.addEventListener('click', () => {
+@@ -1133,19 +748,9 @@ export const BackgroundProject = Project.create({
  			oncomplete() {
  				if (self !== top) return;
  
@@ -450,7 +1075,7 @@ index c9f9c7a..f106865 100644
  
  				const url = window.location.href;
  				const match = matches.some((regex) => {
-@@ -1188,16 +1034,7 @@ export const BackgroundProject = Project.create({
+@@ -1188,16 +793,7 @@ export const BackgroundProject = Project.create({
  				const currentStudyScript = [
  					[CXProject.scripts.studyDispatcher, CXProject.scripts.study],
  					CXProject.scripts.work,
@@ -9574,6 +10199,33 @@ index 5cd4488..0000000
 -
 -	return worker;
 -}
+diff --git a/packages/scripts/src/utils/app.ts b/packages/scripts/src/utils/app.ts
+deleted file mode 100644
+index 9931476..0000000
+--- a/packages/scripts/src/utils/app.ts
++++ /dev/null
+@@ -1,21 +0,0 @@
+-import { $message, $modal, h } from 'easy-us';
+-
+-export const $playwright = {
+-	showError: () => {
+-		const href = 'https://docs.ocsjs.com/docs/script-helper';
+-		const errorEl = h('div', [
+-			'当前页面需要下载OCS桌面端，并在桌面端中新建浏览器，在新建的浏览器中才能进行正常刷课，点击链接查看详情 => ',
+-			h('a', { href: href, target: '_blank' }, href)
+-		]);
+-		$modal.alert({
+-			maskCloseable: false,
+-			title: '⛔ 错误',
+-			confirmButtonText: '查看详情',
+-			content: errorEl.cloneNode(true),
+-			onConfirm() {
+-				window.open(href, '_blank');
+-			}
+-		});
+-		$message.error({ content: errorEl.cloneNode(true), duration: 0 });
+-	}
+-};
 diff --git a/packages/scripts/src/utils/cx-model.ts b/packages/scripts/src/utils/cx-model.ts
 new file mode 100644
 index 0000000..3c90538
@@ -10427,7 +11079,7 @@ index fce71af..5ee9304 100644
  			// 将 AI 答案中的 [图片N] 占位符还原为对应图片 URL，使选项匹配可以命中图片选项。
  			// imageUrls 与实际上传的 env.images 严格同序（createImageSuggestion 单一数据源，含转换失败过滤）。
 diff --git a/scripts/build-core.js b/scripts/build-core.js
-index 2d2f0e9..4edb2e0 100644
+index 2d2f0e9..175c57a 100644
 --- a/scripts/build-core.js
 +++ b/scripts/build-core.js
 @@ -6,7 +6,7 @@ const util = require('util');
@@ -10486,7 +11138,7 @@ index 2d2f0e9..4edb2e0 100644
  					.flat()
  			)
  		);
-@@ -76,23 +91,25 @@ async function createUserJs() {
+@@ -76,23 +91,23 @@ async function createUserJs() {
  				gap: '\t'.repeat(4)
  			},
  			metadata: {
@@ -10516,8 +11168,6 @@ index 2d2f0e9..4edb2e0 100644
 +				connect: [
 +					// 字体解密参照表（cdn.ocsjs.com/resources/font/*.bin）
 +					'ocsjs.com',
-+					// 桌面辅助软件桥接（http://localhost:15319）
-+					'localhost',
 +					// 本项目接入的模型提供商。不加入白名单会被 GM_xmlhttpRequest 的跳域检查拦截，
 +					// 表现为模型请求静默失败：控制台无报错，只是答题没有结果。
 +					'opencode.ai',
@@ -10526,7 +11176,7 @@ index 2d2f0e9..4edb2e0 100644
  				match: matchMetadata,
  				grant: [
  					'GM_info',
-@@ -111,8 +128,7 @@ async function createUserJs() {
+@@ -111,8 +126,7 @@ async function createUserJs() {
  				],
  				require: [path.join(__dirname, distPath, 'index.js')],
  				resource: [`STYLE ${CSS_PATH}`],
@@ -10536,7 +11186,7 @@ index 2d2f0e9..4edb2e0 100644
  			},
  			entry: path.join(__dirname, '../packages/scripts/entry.js'),
  			dist: path.join(__dirname, distPath, 'ocs.user.js')
-@@ -122,8 +138,18 @@ async function createUserJs() {
+@@ -122,8 +136,18 @@ async function createUserJs() {
  	const officialOpts = createOptions();
  	console.log('CreateUserScript: ', officialOpts.metadata.name, officialOpts.dist);
  	await createUserScript(officialOpts);
@@ -10557,7 +11207,7 @@ index 2d2f0e9..4edb2e0 100644
  
  	/** 创建调试脚本 */
  	const devOpts = createOptions();
-@@ -141,18 +167,6 @@ async function createUserJs() {
+@@ -141,18 +165,6 @@ async function createUserJs() {
  	);
  	console.log('createUserScript: ', devOpts.metadata.name, devOpts.dist);
  	await createUserScript(devOpts);
