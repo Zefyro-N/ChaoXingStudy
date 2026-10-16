@@ -1348,10 +1348,10 @@ index da82b2b..807a2e7 100644
  	const faces = $$el<HTMLImageElement>('#fcqrimg', top?.document);
 diff --git a/packages/scripts/src/utils/cx-model.ts b/packages/scripts/src/utils/cx-model.ts
 new file mode 100644
-index 0000000..7b6bf3e
+index 0000000..56979b5
 --- /dev/null
 +++ b/packages/scripts/src/utils/cx-model.ts
-@@ -0,0 +1,200 @@
+@@ -0,0 +1,204 @@
 +/**
 + * [cxstudy M2/M12] 本项目锁定的模型答题器。
 + *
@@ -1539,7 +1539,11 @@ index 0000000..7b6bf3e
 +			data: {
 +				model: CX_LOCKED_MODEL,
 +				messages: { handler: makeMessagesHandler(debug, vision) },
-+				max_tokens: 4096,
++				// [cxstudy M18] 4096 不够：实测思考模型（v4.1-flash 会输出 reasoning_content）
++				// 会把额度烧在推理上，出现 "finish_reason":"length" 且 content 为空，
++				// 只能从 reasoning 尾部猜字母。4 道题里发生了 1 次。
++				// 提到 8192：这是**上限**而非强制用量，不会平白增加成本。
++				max_tokens: 8192,
 +				temperature: 0,
 +				stream: false
 +			},

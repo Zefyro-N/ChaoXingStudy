@@ -26,14 +26,18 @@ DASHBOARD = f"chrome-extension://{TM_ID}/options.html#nav=dashboard"
 
 # 用这些标记判断装的是哪一版
 MARKERS = [
-    ("M16 章节测验字体解密", "cxstudy M16"),
-    ("M14 作业考试闸门", "cxstudy M14"),
-    ("M13 截图兜底", "cxstudy M13"),
-    ("M12 图片题多模态", "cxstudy M12"),
+    ("M17 解密等待+校验", "decryptFontsWithRetry"),
+    ("M17 解密结果日志", "字体解密成功"),
+    ("M16 章节测验解密调用", "章节测验字体解密失败"),
+    ("M14 作业考试闸门", "cxWorkGate"),
+    ("M13 截图兜底", "captureElementAsDataUrl"),
+    ("M12 图片题多模态", "image_url"),
+    ("M12 图片题开关标签", "允许图片题"),
     ("M9 finishJob 开关", "cxAllowFinishJob"),
-    ("M5 弹题走模型", "cxstudy M5"),
+    ("M5 弹题走模型", "answerVideoQuiz"),
+    ("M3 倍速锁定", "本分支锁定 1.0x"),
     ("M2 模型绑定", "deepseek-v4.1-flash"),
-    ("@connect opencode.ai", "// @connect"),
+    ("M1 @connect", "@connect"),
 ]
 
 READ_EDITOR = """() => {
@@ -116,18 +120,29 @@ def main():
 
             print("\n=== 版本标记检查 ===")
             ok = True
+            critical = ["M17", "M16", "M2"]
             for label, needle in MARKERS:
                 hit = needle in txt
-                if label.startswith("M16") and not hit:
+                if any(label.startswith(c) for c in critical) and not hit:
                     ok = False
-                print("  %-26s %s" % (label, "命中" if hit else "未命中"))
+                print("  %-24s %s" % (label, "命中" if hit else "未命中"))
             ver = ""
             for line in txt.splitlines():
                 if line.startswith("// @version"):
                     ver = line.strip()
                     break
             print("\n  版本行: %s" % ver)
-            print("  结论: %s" % ("✅ 装的是含 M16 的最新构建" if ok else "❌ 装的是旧构建（缺 M16），需要重新安装"))
+            print("  元数据关键行（直接看，不靠检索）:")
+            shown = 0
+            for line in txt.splitlines():
+                s = line.strip()
+                if s.startswith("// @connect") or s.startswith("// @match") or s.startswith("// @version") or s.startswith("// @name"):
+                    print("    %s" % s[:90])
+                    shown += 1
+                    if shown > 18:
+                        print("    ...")
+                        break
+            print("  结论: %s" % ("✅ 装的是含 M17 的最新构建" if ok else "❌ 装的不是最新构建（关键标记缺失），需要重新安装"))
         finally:
             try:
                 pg.close()
