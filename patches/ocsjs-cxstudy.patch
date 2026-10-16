@@ -778,7 +778,7 @@ index aadb3d9..c79b1f4 100644
  
  						return workOptions;
 diff --git a/packages/scripts/src/projects/cx.ts b/packages/scripts/src/projects/cx.ts
-index da82b2b..759a568 100644
+index da82b2b..807a2e7 100644
 --- a/packages/scripts/src/projects/cx.ts
 +++ b/packages/scripts/src/projects/cx.ts
 @@ -9,13 +9,17 @@ import {
@@ -942,7 +942,80 @@ index da82b2b..759a568 100644
  			methods() {
  				return {
  					/** 解除输入框无法复制粘贴 */
-@@ -1685,7 +1728,9 @@ function searchJob(opts: typeof CXProject.scripts.study.cfg, searchedJobs: Job[]
+@@ -782,7 +825,10 @@ export const CXProject = Project.create({
+ 				['作业', '/mooc2/work/dowork']
+ 			],
+ 			async oncomplete() {
+-				await mappingRecognize();
++				// [cxstudy M17] 上游此处直接 await mappingRecognize()，是一次性的、
++				// 常因触发时机早于字体渲染而静默失败（实测作业页 20 个元素未解密）。
++				// 改为带等待与结果校验的版本。
++				await decryptFontsWithRetry(document, 20000);
+ 			}
+ 		}),
+ 		// 积分课提示
+@@ -1184,6 +1230,60 @@ function mobilelearn(opts: CommonWorkOptions) {
+  * @see 算法详解见 utils/font-decrypt/bitmap.ts 文件头注释
+  * @see 参考 https://bbs.tampermonkey.net.cn/thread-2303-1-1.html
+  */
++/**
++ * [cxstudy M17] 带等待与校验的字体解密。
++ *
++ * 为什么不能直接用上游的 mappingRecognize()：它是**一次性**调用，
++ * extractFontFromStyle() 取不到字体、或 getSecretFont() 返回空，就**静默 return**；
++ * 而它唯一的调用点（作业/考试路由的 Script.oncomplete）经常在题目与字体
++ * 真正渲染之前就触发——实机实测：作业页 20 个 .font-cxsecret 元素未被解密，
++ * 而该页 @font-face 明明存在、document.fonts 里 font-cxsecret 已 loaded。
++ *
++ * 本函数先轮询等加密元素出现，解密后再校验剩余数量，并把结果写进日志。
++ *
++ * @returns 是否发生了实际解密
++ */
++async function decryptFontsWithRetry(doc: Document, timeoutMs = 20000): Promise<boolean> {
++	const t0 = Date.now();
++	while (Date.now() - t0 < timeoutMs) {
++		let before = 0;
++		try {
++			before = doc.querySelectorAll('.font-cxsecret').length;
++		} catch (e) {
++			before = 0;
++		}
++		if (before > 0) {
++			try {
++				await mappingRecognize(doc);
++			} catch (e) {
++				$console.warn('[cxstudy M17] 字体解密抛出异常：' + (e as any)?.message);
++			}
++			let after = before;
++			try {
++				after = doc.querySelectorAll('.font-cxsecret').length;
++			} catch (e) {
++				/* 忽略 */
++			}
++			if (after < before) {
++				$console.log('[cxstudy M17] 字体解密成功：解密前 ' + before + ' 个，剩余 ' + after + ' 个。');
++			} else {
++				$console.warn(
++					'[cxstudy M17] 字体解密未生效：仍有 ' +
++						after +
++						' 个 .font-cxsecret（题干可能是乱码；参照表 https://cdn.ocsjs.com/resources/font/font_ref_cx.bin 需可获取）'
++				);
++			}
++			return after < before;
++		}
++		await $.sleep(500);
++	}
++	$console.log('[cxstudy M17] 等待 ' + timeoutMs + 'ms 仍无 .font-cxsecret 元素（该页可能本就未加密字体）。');
++	return false;
++}
++
++/**
++ * [cxstudy M11 已回退] 保留空位说明，避免后人误以为遗漏。
++ */
+ async function mappingRecognize(doc: Document = document) {
+ 	// 从 @font-face 的 data URI 中提取加密字体
+ 	const fontBuffer = extractFontFromStyle(doc, 'font-cxsecret');
+@@ -1685,7 +1785,9 @@ function searchJob(opts: typeof CXProject.scripts.study.cfg, searchedJobs: Job[]
  									}播放 : ` + jobName;
  								$message.info({ content: msg });
  								$console.log(msg);
@@ -953,7 +1026,7 @@ index da82b2b..759a568 100644
  							};
  						}
  					}
-@@ -1804,7 +1849,61 @@ export function fixedVideoProgress() {
+@@ -1804,7 +1906,61 @@ export function fixedVideoProgress() {
  /**
   * 任务点运行器
   */
@@ -1015,7 +1088,7 @@ index da82b2b..759a568 100644
  	/**
  	 * 播放视频和音频
  	 */
-@@ -1814,7 +1913,9 @@ const JobRunner = {
+@@ -1814,7 +1970,9 @@ const JobRunner = {
  			volume: number;
  			videoQuizStrategy: VideoQuizStrategy;
  		},
@@ -1026,7 +1099,7 @@ index da82b2b..759a568 100644
  	) {
  		const { playbackRate = 1, volume = 0 } = setting;
  
-@@ -1835,30 +1936,26 @@ const JobRunner = {
+@@ -1835,30 +1993,26 @@ const JobRunner = {
  		// 固定视频进度
  		fixedVideoProgress();
  
@@ -1071,7 +1144,7 @@ index da82b2b..759a568 100644
  			};
  			loop();
  		}
-@@ -1905,7 +2002,9 @@ const JobRunner = {
+@@ -1905,7 +2059,9 @@ const JobRunner = {
  			media.volume = volume;
  
  			// 重置视频进度
@@ -1082,7 +1155,7 @@ index da82b2b..759a568 100644
  
  			// 使用 setTimeout 解决 The play() request was interrupted by a call to pause() 问题
  			setTimeout(() => {
-@@ -1921,8 +2020,33 @@ const JobRunner = {
+@@ -1921,8 +2077,33 @@ const JobRunner = {
  	 * 阅读，PPT
  	 */
  	async read(win: Window & { finishJob?: Function }) {
@@ -1118,19 +1191,17 @@ index da82b2b..759a568 100644
  		await $.sleep(3000);
  	},
  	/**
-@@ -1960,6 +2084,20 @@ const JobRunner = {
+@@ -1960,6 +2141,18 @@ const JobRunner = {
  			return answerWrapperEmptyWarning(0);
  		}
  
-+		// [cxstudy M16] 上游的字体解密（mappingRecognize）只在「作业/考试」页面被调用，
-+		// 章节测验页**不做解密** —— 结果就是混淆字体（font-cxsecret）的题干以乱码
-+		// 直接发给模型（实机实测："應贯论懆襖保证澥（）應贯懅统"）。
-+		// 这里在抽题之前先解密一次；失败则不阻断答题（降级为原行为）。
++		// [cxstudy M16/M17] 上游的字体解密只在作业/考试页被调用，且是一次性的、时机脆弱；
++		// 章节测验页则完全不调用 —— 结果就是混淆字体的题干以乱码发给模型。
++		// 这里改成“等加密元素出现后再解密，并校验结果”。
 +		try {
 +			const quizDoc = frame.contentWindow?.document;
 +			if (quizDoc) {
-+				await mappingRecognize(quizDoc);
-+				$console.log('[cxstudy M16] 章节测验已尝试字体解密（若该页无加密文字则会直接跳过）。');
++				await decryptFontsWithRetry(quizDoc, 15000);
 +			}
 +		} catch (e) {
 +			$console.warn('[cxstudy M16] 章节测验字体解密失败，将按未解密文本继续：' + (e as any)?.message);
@@ -1139,7 +1210,7 @@ index da82b2b..759a568 100644
  		// 章节测试未使用 commonWork，这里手动触发状态更新
  		CommonEvents.emitWorkerStateChange('start');
  
-@@ -2131,48 +2269,12 @@ const JobRunner = {
+@@ -2131,48 +2324,12 @@ const JobRunner = {
  					simplifyWorkResult(curr, chapterTestTaskQuestionTitleText, index)
  				);
  
@@ -1191,7 +1262,7 @@ index da82b2b..759a568 100644
  				}
  			},
  			async onElementSearched(elements) {
-@@ -2232,6 +2334,26 @@ const JobRunner = {
+@@ -2232,6 +2389,26 @@ const JobRunner = {
  					// @ts-ignore 提交
  					frameWindow.btnBlueSubmit();
  
@@ -1218,7 +1289,7 @@ index da82b2b..759a568 100644
  					await $.sleep(3000);
  					/** 确定按钮 */
  					// @ts-ignore 确定
-@@ -2351,6 +2473,56 @@ async function readerAndFillHandle(searchInfos: SearchInformation[], list: HTMLE
+@@ -2351,6 +2528,56 @@ async function readerAndFillHandle(searchInfos: SearchInformation[], list: HTMLE
  	return { finish: false };
  }
  
