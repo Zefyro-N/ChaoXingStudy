@@ -79,6 +79,7 @@ def score(c):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--seconds", type=int, default=25)
+    ap.add_argument("--interval", type=int, default=2, help="采样间隔秒")
     ap.add_argument("--all", action="store_true")
     args = ap.parse_args()
 
@@ -109,54 +110,67 @@ def main():
         vf, s0 = cands[0]
         print("\n=== 选中（分数最高，最像真在播的那个）===")
         print("  <%s> frame=%s" % (s0["tag"], (vf.url or "")[:100]))
-        for k, v in s0.items():
-            print("    %-14s %s" % (k, v))
+        print("    duration=%s  currentTime=%.1f  rate=%s  paused=%s" % (
+            s0["duration"], s0["currentTime"], s0["playbackRate"], s0["paused"]))
         if s0["duration"] > 0:
-            print("    进度           %.1f%%" % (100.0 * s0["currentTime"] / s0["duration"]))
+            print("    进度 %.1f%%" % (100.0 * s0["currentTime"] / s0["duration"]))
 
-        print("\n等待 %d 秒..." % args.seconds)
+        # ---- 连续采样：量化暂停占比（单次快照很容易误判）----
+        interval = args.interval
+        n = max(1, int(args.seconds / interval))
+        print("\n=== 连续采样：%d 次，每次间隔 %ds（共约 %ds）===" % (n, interval, n * interval))
+        samples = []
         wall0 = time.time()
-        time.sleep(args.seconds)
+        for i in range(n):
+            target_ct = s0["currentTime"]
+            try:
+                now = vf.evaluate(PROBE_ALL)
+                cur = None
+                for c in now:
+                    if c["tag"] == s0["tag"]:
+                        cur = c
+                        break
+            except Exception:
+                cur = None
+            if cur:
+                samples.append(cur)
+            time.sleep(interval)
         wall1 = time.time()
 
-        try:
-            now = vf.evaluate(PROBE_ALL)
-        except Exception as e:
-            print("[T1 读取失败] %s" % str(e)[:120])
-            sys.exit(1)
-        s1 = None
-        for c in now:
-            if c["tag"] == s0["tag"] and c["src"] == s0["src"]:
-                s1 = c
-                break
-        if s1 is None and now:
-            s1 = now[0]
-        if s1 is None:
-            print("[T1] 元素消失（可能已切任务）")
+        if len(samples) < 2:
+            print("[采样不足] 元素可能已切走")
             sys.exit(1)
 
-        vt = s1["currentTime"] - s0["currentTime"]
+        a, b = samples[0], samples[-1]
+        vt = b["currentTime"] - a["currentTime"]
         wt = wall1 - wall0
         eff = vt / wt if wt else 0
+        paused_n = sum(1 for c in samples if c["paused"])
+        rates = sorted(set(c["playbackRate"] for c in samples))
 
-        print("=== T1 ===")
-        for k in ("currentTime", "playbackRate", "paused", "ended", "readyState"):
-            print("    %-14s %s" % (k, s1[k]))
-
-        print("\n=== 结论 ===")
+        print("  样本数          %d" % len(samples))
         print("  视频前进      %.2f 秒" % vt)
         print("  实际流逝      %.2f 秒" % wt)
         print("  有效速率      %.3f x" % eff)
-        print("  playbackRate  %.2f -> %.2f" % (s0["playbackRate"], s1["playbackRate"]))
+        print("  暂停样本占比  %d/%d = %.0f%%" % (paused_n, len(samples), 100.0 * paused_n / len(samples)))
+        print("  出现过的 rate  %s" % rates)
+        if b["duration"] > 0:
+            print("  当前进度      %.1f%%" % (100.0 * b["currentTime"] / b["duration"]))
 
-        if vt < -0.5:
+        print("\n=== 结论 ===")
+        if any(r > 1 for r in rates):
+            print("  => ❌ 出现过 playbackRate>1：存在倍速（违反约束 #2）")
+        elif vt < -0.5:
             print("  => ❌ currentTime 倒退：发生了 seek/重播")
-        elif abs(eff - 1.0) <= 0.08 and s1["playbackRate"] == 1:
+        elif eff > 1.08:
+            print("  => ❌ 有效速率 >1：存在跳进（违反约束 #2）")
+        elif abs(eff - 1.0) <= 0.08:
             print("  => ✅ 真实速率成立（1.0x），符合约束 #2")
-        elif eff > 1.08 or s1["playbackRate"] > 1:
-            print("  => ❌ 存在倍速/跳进（违反约束 #2）")
         else:
-            print("  => ⚠️ 有效速率 <1：被暂停打断（paused=%s）" % s1["paused"])
+            print("  => ⚠️ 有效速率 %.2fx，低于 1.0；暂停样本占比 %.0f%%" % (eff, 100.0 * paused_n / len(samples)))
+            print("     最可能原因：页面不在前台/窗口最小化（超星要求“观看时不可离开或最小化”，")
+            print("     OCS 也弹过此类警告）。上游的 pause->play 只能部分兼底。")
+            print("     若要彻底消除：需恢复 M11（伪装可见性状态），目前按用户要求已回退。")
 
         print("\n本次只读取播放器状态，未点击、未拖动。")
 

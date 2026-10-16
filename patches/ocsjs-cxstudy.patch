@@ -778,7 +778,7 @@ index aadb3d9..c79b1f4 100644
  
  						return workOptions;
 diff --git a/packages/scripts/src/projects/cx.ts b/packages/scripts/src/projects/cx.ts
-index da82b2b..9521887 100644
+index da82b2b..759a568 100644
 --- a/packages/scripts/src/projects/cx.ts
 +++ b/packages/scripts/src/projects/cx.ts
 @@ -9,13 +9,17 @@ import {
@@ -1118,7 +1118,28 @@ index da82b2b..9521887 100644
  		await $.sleep(3000);
  	},
  	/**
-@@ -2131,48 +2255,12 @@ const JobRunner = {
+@@ -1960,6 +2084,20 @@ const JobRunner = {
+ 			return answerWrapperEmptyWarning(0);
+ 		}
+ 
++		// [cxstudy M16] 上游的字体解密（mappingRecognize）只在「作业/考试」页面被调用，
++		// 章节测验页**不做解密** —— 结果就是混淆字体（font-cxsecret）的题干以乱码
++		// 直接发给模型（实机实测："應贯论懆襖保证澥（）應贯懅统"）。
++		// 这里在抽题之前先解密一次；失败则不阻断答题（降级为原行为）。
++		try {
++			const quizDoc = frame.contentWindow?.document;
++			if (quizDoc) {
++				await mappingRecognize(quizDoc);
++				$console.log('[cxstudy M16] 章节测验已尝试字体解密（若该页无加密文字则会直接跳过）。');
++			}
++		} catch (e) {
++			$console.warn('[cxstudy M16] 章节测验字体解密失败，将按未解密文本继续：' + (e as any)?.message);
++		}
++
+ 		// 章节测试未使用 commonWork，这里手动触发状态更新
+ 		CommonEvents.emitWorkerStateChange('start');
+ 
+@@ -2131,48 +2269,12 @@ const JobRunner = {
  					simplifyWorkResult(curr, chapterTestTaskQuestionTitleText, index)
  				);
  
@@ -1170,7 +1191,7 @@ index da82b2b..9521887 100644
  				}
  			},
  			async onElementSearched(elements) {
-@@ -2232,6 +2320,26 @@ const JobRunner = {
+@@ -2232,6 +2334,26 @@ const JobRunner = {
  					// @ts-ignore 提交
  					frameWindow.btnBlueSubmit();
  
@@ -1197,7 +1218,7 @@ index da82b2b..9521887 100644
  					await $.sleep(3000);
  					/** 确定按钮 */
  					// @ts-ignore 确定
-@@ -2351,6 +2459,56 @@ async function readerAndFillHandle(searchInfos: SearchInformation[], list: HTMLE
+@@ -2351,6 +2473,56 @@ async function readerAndFillHandle(searchInfos: SearchInformation[], list: HTMLE
  	return { finish: false };
  }
  
