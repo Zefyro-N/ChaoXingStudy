@@ -237,7 +237,7 @@ D1 原选择“自研油猴脚本”的理由之一是“完全可审计”。�
 | 编号 | 改造 | 状态 | 验证方式 |
 |---|---|---|---|
 | M1 | `@connect` 接入 `opencode.ai` / `api.deepseek.com` | ✅ 完成 | 产物中 `Select-String '@connect'` 已命中两个域名 |
-| M2 | **模型接入落地**（非仅管道）：`cx-model.ts` 把模型包装成 OCS 原生答题器；面板只留「提供商 + API Key」；题库从答题链路摘除 | ✅ 落地 | 产物 11 项自检全通过（锁定模型、两个 endpoint、`x-opencode-session`、面板配置项、判断题极性词规则、`reasoning_content` 兜底） |
+| M2 | **模型接入落地 + 精简**：`cx-model.ts` 把模型包装成 OCS 原生答题器（含 system 角色提示词与调试开关）；面板只留「提供商 + API Key + 调试」；题库从链路摘除并**删掉整个题库 UI（568 行）** | ✅ 落地 | 产物 9 项自检全通过；`answererWrappersButton` 已消失 |
 | M3 | 倍速锁定 1.0x、禁用 rateHack | ✅ 完成 | 产物含 `本分支锁定 1.0x`；`cx.ts` 中活动赋值仅 `playbackRate = 1` |
 | M4 | 禁用屏蔽复制粘贴 | ✅ 完成 | 产物含 `__cxstudy_never_matches__` |
 | M7 | **新增验证码提交前门禁** | ✅ 代码级 | 产物含 `__cxstudyDetectCaptcha` + `cxstudy M7`；**待实机验证** |
@@ -288,10 +288,22 @@ D1 原选择“自研油猴脚本”的理由之一是“完全可审计”。�
 3. **BOM 导致构建失败**：`Set-Content -Encoding utf8` 会写入 UTF-8 BOM，`tsx` 解析 `package.json` 直接报
    `Error parsing: package.json`。需用 `UTF8Encoding($false)` 无 BOM 写入。
 
-### 11.4 仍然待做
+### 11.4 精简结果（用户明确要求）
+
+| 项 | 做法 | 效果 |
+|---|---|---|
+| `@match` 收窄 | `build-core.js` 的 `matchMetadata` 用 `CX_CORE_MATCH_DOMAINS` 白名单过滤 | 域名数 **34 → 4**（chaoxing.com / edu.cn / org.cn / xueyinonline.com） |
+| 题库 UI 整体删除 | 字节级删除 `common.ts` 原 241–808 行（`answererWrappersButton` 整块，568 行） | 产物 **940,467 → 899,655 bytes**；`index.js` 823.54 → 791.10 KiB |
+| 描述文案 | `projectList` 过滤为只含「超星学习通」 | 元数据不再声称支持 6 个平台 |
+
+删除依据：已 grep 确认 `answererWrappersButton` 除注释外**无代码依赖**；
+`openAnswererModal` / `waitForAnswererConfig` 的使用点全在被删块内，`utils/ui.ts` 侧有 `if (provider?.openAnswererModal)` 守卫。
+**文件是 CRLF**，因此删除用 Python 按字节做（`split(b'\r\n')`），绝不用 PowerShell 改含中文的源码。
+
+### 11.5 仍然待做
 
 - **M5**：视频内题目仍为上游的“随机作答”，需把 `answererWrappers` 传进 `JobRunner.media` 才能走模型。
 - **M6**：答不出时仍会随机填空，需改为放弃。
-- **精简（用户明确要求）**：题库配置的 UI 代码（`common.ts` 里 `answererWrappersButton.onload` 共数百行）
-  与 `answerer-connect` 仍在打包产物里；上游其余平台（`zhs`/`yuketang`/`icve`/`zjy`/`icourse`）
-  与本项目无关，`@match` 也仍开着数十个域名。这些只影响体积与面板观感，不影响功能。
+- **平台精简（未做）**：上游其余 5 个平台（`zhs`/`yuketang`/`icve`/`zjy`/`icourse`）源码仍在打包产物里。
+  删它们需要动 `index.ts` 的注册与 `common.ts` 的跳项目引用，风险高于收益，待评估。
+- **实机验证**：M7 验证码门禁、M9 禁用 finishJob 两项尚未在真实课程上验证过。

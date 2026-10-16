@@ -11,7 +11,7 @@
 | 许可证 | MIT（保留上游署名，见产物头部 `@author enncy`） |
 | 补丁文件 | `ocsjs-cxstudy.patch` |
 | 改动范围 | 6 个文件（含 1 个新增） |
-| 产物 | `dist/ocs.user.js`（936,546 bytes，`@version 5.2.1-cxstudy.1`） |
+| 产物 | `dist/ocs.user.js`（899,655 bytes，`@version 5.2.1-cxstudy.1`） |
 
 ## 改动的文件
 
@@ -20,7 +20,7 @@
 | `scripts/build-core.js` | `metadata.connect` 加入 `opencode.ai`、`api.deepseek.com` | M1 |
 | `packages/core/src/core/answer-wrapper/answer.wrapper.handler.ts` | 给 `headers` 接通 `${}` 占位符替换；注入稳定会话 ID `${__session}` | M2 |
 | `packages/scripts/src/utils/cx-model.ts` | **新增**。把模型包装成 OCS 原生 `AnswererWrapper`，复用上游题型 resolver；锁定模型与两个提供商；答案格式对齐 resolver 匹配阶段 | M2 |
-| `packages/scripts/src/projects/common.ts` | 面板新增「模型接入（本分支）」分组（提供商 + API Key）；`getWorkOptions()` 不再用题库，改由模型答题器提供答案；题库按钮标注弃用 | M2 |
+| `packages/scripts/src/projects/common.ts` | 面板新增「模型接入（本分支）」分组（提供商 + API Key + 调试开关）；`getWorkOptions()` 不再用题库，改由模型答题器提供答案；**删除题库配置 UI 整块（原 241–808 行，568 行）** | M2 |
 | `packages/scripts/src/projects/cx.ts` | 倍速锁定 1.0x、禁用 rateHack、禁用复制粘贴屏蔽、不重置播放进度、禁用 finishJob 秒过、考试硬禁区、**新增验证码提交前门禁**、模型未配置改为检查 API Key | M3/M4/M7/M8/M9/M10 |
 | `package.json` | 版本号加 `-cxstudy.1` 分支标识，便于区分上游产物 | —— |
 
@@ -51,6 +51,22 @@ node_modules\.bin\gulp.cmd -f .\scripts\build-core.js
 # 产物：release/ocs.user.js
 ```
 
+## 已实现的精简
+
+| 项 | 做法 | 效果 |
+|---|---|---|
+| **`@match` 收窄** | `build-core.js` 的 `matchMetadata` 用 `CX_CORE_MATCH_DOMAINS` 白名单过滤 | 域名数 **34 → 4**（chaoxing.com / edu.cn / org.cn / xueyinonline.com） |
+| **题库 UI 整体删除** | 字节级删除 `common.ts` 原 241–808 行（`answererWrappersButton` 整块） | 源码 −568 行；产物 −40,812 bytes |
+| 描述文案 | `projectList` 过滤为只含「超星学习通」 | 面板/元数据不再声称支持 6 个平台 |
+| 题库从链路摘除 | `getWorkOptions()` 直接覆盖 `answererWrappers` | 即使配了题库也不参与答题 |
+
+删除依据：`answererWrappersButton` 除注释外无代码依赖（已 grep 确认）；
+`openAnswererModal` / `waitForAnswererConfig` 的使用点全部在被删块内，
+`utils/ui.ts` 侧用 `if (provider?.openAnswererModal)` 守卫，不会抛错。
+
+**尚未精简**：上游其余 5 个平台（`zhs` / `yuketang` / `icve` / `zjy` / `icourse`）的源码仍在打包产物里，
+它们与超星无关。删它们需要动 `index.ts` 注册与 `common.ts` 的跨项目引用，风险高于收益，待后续评估。
+
 ## 模型接入怎么用（M2 落地后的实际操作）
 
 1. 装好 `dist/ocs.user.js`，进入任意学习通课程页，打开 OCS 悬浮面板。
@@ -68,6 +84,31 @@ node_modules\.bin\gulp.cmd -f .\scripts\build-core.js
 | 多选 | 多个选项原文，英文逗号分隔 | 同上（`resolveMultiple` 阶段 1） |
 | **判断** | **只输出「正确」或「错误」** | `resolveJudgement` 只认 CORRECT_WORDS / INCORRECT_WORDS 里的极性词。**返回字母一定失败**，这是最容易踩的坑 |
 | 填空 | 答案文本 | 直写 textarea |
+
+## 效率与可观测性（针对“只问题干不带选项”的疑问）
+
+**选项是带上的**，证据链：
+
+1. `utils/answerer-env.ts` 的 `buildAnswererEnv()` 返回 `env = { type, title, options }`，
+   `options` 是选项文本按行拼接（并经 `dedupeLines` 按行去重）。
+2. `cx-model.ts` 的 `messages` 解析器把 `env.options` 按行拆开，渲染成 `A. … B. … C. …` 再拼进 user 消息。
+3. 产物中可检索到 `选项：` 与系统提示词字符串。
+
+**看不到选项时怎么定位**（已内置两个手段）：
+
+- 面板勾选 **「调试：打印模型请求与响应」**，控制台会打印实际发出的 prompt 与模型原始响应。
+- 若选择题的 `env.options` 为空，会直接告警：
+  `[cxstudy M2] ⚠️ 选择题未取到任何选项，本题必然答错。题型=… 题干=…`
+  —— 出现这条说明是**选项选择器**与你的课程 DOM 不匹配，而不是没带选项。
+
+**关于效率**：带上选项不但不会变慢，反而更快更准。模型不需要盲猜题干描述，
+输出 token 也更少。真正影响速度的是 `max_tokens` 与模型是否输出推理过程，
+所以系统提示词明确禁止解释与反问——这正是减少 token 的关键。
+
+**一个容易误会的点**：提示词里给的 `A.` `B.` 只是**展示用**的位置标号。
+要求模型回答的是**选项原文**，而不是字母，因为上游 resolver 阶段 1 是拿答案文本与选项文本做
+归一化精确匹配（`resolveSingle` / `resolveMultiple`）。所以即使 `dedupeLines` 去掉了重复行，
+也不会影响答题正确性。
 
 ## 已实现 / 未实现
 
