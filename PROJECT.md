@@ -719,7 +719,7 @@ A. 信念  B. 真理  C. 观念  D. 逻辑
 |---|---|
 | 交付物 | `dist/ocs.user.js`，**915,202 bytes**，`@version 5.2.1-cxstudy.1` |
 | 已安装 | Tampermonkey（Edge，扩展 ID `iikmkjmpaadaobahmlepeloendndfphd`），在**用户日常 Edge** 里 |
-| 源码工作区 | `refs/ocsjs`（**独立 git 仓库**；我的改动已提交 `1540731`，防 `git restore` 回退到上游） |
+| 源码工作区 | `refs/ocsjs`（**独立 git 仓库**；我的改动已提交 `eca3700` = M1–M18 全部，防 `git restore` 回退到上游） |
 | 补丁 | `patches/ocsjs-cxstudy.patch`；基线见 `patches/UPSTREAM_BASE.txt`（`8b25a3f44523a0d4b7373878488056f4aa478cf6`） |
 | 目标课程 | 知识论导论 `courseId=267906322`（另有 `courseId=260968634` 已刷完） |
 | 构建配方 | skill `build-ocsjs-userscript`（Node 18 + gulp + 三个 .env + `--node-linker=hoisted`） |
@@ -776,6 +776,8 @@ M2 端到端（prompt 含带标号选项 + `model=deepseek-v4.1-flash` + `conten
    会把 `在线网络课程辅助工具` 写成乱码并改行尾。用 Python 字节级操作或 `edit` 工具。
 3. **`refs/ocsjs` 是独立 git 仓库且被外层仓库 gitignore**：`git restore` 会回退到**上游**原版
    （曾因此清空 `cx.ts`）。改动务必提交进 `refs/ocsjs` 自己，并用**固定基线**导出补丁。
+   （2026-10-16 已补齐：`1540731` 当时只到 M14，M16/M17/M18 事后补提交为 `eca3700`。
+   核对命令：`git -C refs/ocsjs diff --ignore-cr-at-eol --numstat | awk '$1+0!=0||$2+0!=0'`，无输出即全部已提交。）
 4. **禁止 `open(path,'wb').write(<可能抛异常的表达式>)`**：`open('wb')` 先截断文件，
    表达式再抛异常就永久留空。必须先算好内容、写临时文件、校验后 `os.replace`。
 5. 源码文件是 **CRLF**、上游 blob 是 LF：补丁导出用 `--ignore-cr-at-eol`，应用用 `--ignore-whitespace`。
@@ -795,3 +797,20 @@ M2 端到端（prompt 含带标号选项 + `model=deepseek-v4.1-flash` + `conten
 
 **等用户实机跑作业/考试时验证 M14**（三个开关默认全关；第一次建议用户在场）。
 其余改造均已完成；未验证项都在 §19.3，遇到问题再查。
+
+
+### 19.8 压缩后首次续接的核查（2026-10-16）
+
+按要求「读 §19 继续」后做了一次一致性核查，结论：
+
+1. **发现并修掉一个真实耐久性缺陷**：`refs/ocsjs` 的 HEAD 当时仍是 `1540731`（只到 M14），
+   M16/M17/M18 三轮改动**从未提交进内层仓库** —— 一旦 `git restore` 就会退到上游。已补提交为 `eca3700`。
+2. 交付物无漂移：补丁按固定基线重导出后与原交付补丁**逐字节一致**（92,278 bytes），
+   反向应用自检通过；`dist/ocs.user.js` 仍为 915,202 bytes；外仓 clean。
+3. **一条容易误判的 git 现象**：`git -C refs/ocsjs status --short` 会列出约 114 个文件为 `M`，
+   但那是**仅行尾（CRLF/LF）不同**的噪声（仓库无 `.gitattributes`、`core.autocrlf` 未设置）。
+   判断"是否真有未提交改动"必须用
+   `git diff --ignore-cr-at-eol --numstat | awk '$1+0!=0||$2+0!=0'`，
+   而不能看 `status` 或 `--name-only`（后者同样会把纯行尾差异列出来）。
+   当时真实待提交的只有 3 个文件：`cx.ts`(M16+M17) / `cx-model.ts`(M18) / `.npmrc`(构建代理修正)。
+4. 未验证项与唯一待办不变（见 §19.3 / §19.7）。
