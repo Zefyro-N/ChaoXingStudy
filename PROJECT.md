@@ -1001,3 +1001,43 @@ catch 分支最初把 `\n` 写成了 `
 
 `gulp exit=0`；testResolver 164/164；cx-model.handler 26/26；平台范围校验通过。
 补丁 412,819 bytes / 27 文件 / 8 处删除，反向应用自检通过。
+
+
+## 23. 残留扫描补漏（M22）
+
+对称扫描「源码 + 产物」后，又发现三处**其他平台已删、专属代码仍在**的死代码，均无任何引用：
+
+| 删除项 | 规模 | 说明 |
+|---|---|---|
+| `utils/zhs.configs.ts` | 143 行 | 整个智慧树配置模块 |
+| `utils/config-migrate.ts` | 94 行 | 整个智慧树命名空间迁移模块 |
+| `background.ts` 的 `appLoginHelper` | 16 行 | 「软件登录辅助」，属已移除的桌面软件链路；`matches` 还带着智慧树/职教云/智慧职教登录页 |
+
+另清理三处平台化注释：`font-decrypt/index.ts` 的特征表说明去掉 `yuketang.bin`、
+`answerer-connect.ts` 的 referrer 说明、`common.ts` 的动态答题器举例。
+
+**方法论教训**：只扫"平台文件是否还在"是不够的——**平台专属的辅助模块会散落在 `utils/`
+等其他目录**，且平台名会藏在注释里。因此清理后必须做**双向对称扫描**：
+
+```bash
+# 平台名 / 域名 / 标识符 / 文件名 四类，源码与产物都扫
+grep -rn '智慧树\|雨课堂\|智慧职教\|职教云\|中国大学MOOC' packages/*/src
+grep -rn 'zhihuishu\|yuketang\|icve\|icourse163\|zjy2' packages/*/src
+grep -rn 'ZHSProject\|YKTProject\|IcveMoocProject\|ICourseProject\|ZJYProject' packages/*/src
+ls packages/scripts/src/utils/ | grep -i 'zhs\|ykt\|icve\|icourse\|zjy'
+```
+
+**一处易误报**：PowerShell 的 `Select-String` 默认**不区分大小写**，会把我方有意保留的
+日志前缀 `[CXStudy]` 误报成开发标记 `[cxstudy`（36 处）。核对时用区分大小写的 `grep`。
+
+### 23.1 最终状态
+
+| 项 | 值 |
+|---|---|
+| 产物 | `dist/ocs.user.js` **470,746 bytes**（初始 916,470 → 累计 −49%） |
+| `@connect` | 3 个：`ocsjs.com`（字体参照表）/ `opencode.ai` / `api.deepseek.com` |
+| 平台范围校验 | ✅ 超星学习通 / 通用 / 后台 |
+| 测试 | 164/164 + 26/26 |
+| 补丁 | 425,687 bytes，31 文件，10 处删除，反向应用自检通过 |
+| 内层仓库 | `30f2409` |
+| 残留 | 其他平台痕迹、`docs.ocsjs.com`、`localhost`、`RemotePlaywright` 全为 0；MIT 声明保留 |

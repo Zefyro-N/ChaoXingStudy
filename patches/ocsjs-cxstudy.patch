@@ -611,7 +611,7 @@ index b443d33..7fe48b1 100644
 +	return [CXProject, CommonProject, BackgroundProject];
  }
 diff --git a/packages/scripts/src/projects/background.ts b/packages/scripts/src/projects/background.ts
-index c9f9c7a..7ed3d86 100644
+index c9f9c7a..73296a8 100644
 --- a/packages/scripts/src/projects/background.ts
 +++ b/packages/scripts/src/projects/background.ts
 @@ -1,6 +1,5 @@
@@ -1052,7 +1052,30 @@ index c9f9c7a..7ed3d86 100644
  			onrender({ panel }) {
  				const injectBtn = h('button', { className: 'base-style-button' }, '点击注入全局变量');
  				injectBtn.addEventListener('click', () => {
-@@ -1133,19 +748,9 @@ export const BackgroundProject = Project.create({
+@@ -804,22 +419,6 @@ export const BackgroundProject = Project.create({
+ 				panel.body.replaceChildren(h('div', { className: 'card' }, [h('hr'), injectBtn, showTabDataBtn]));
+ 			}
+ 		}),
+-		appLoginHelper: new Script({
+-			name: '软件登录辅助',
+-			matches: [
+-				['超星登录', 'passport2.chaoxing.com/login'],
+-				['智慧树登录', 'passport.zhihuishu.com/login'],
+-				['职教云登录', 'zjy2.icve.com.cn/portal/login.html'],
+-				['智慧职教登录', 'sso.icve.com.cn/sso/auth']
+-			],
+-			hideInPanel: true,
+-			oncomplete() {
+-				// 将面板移动至左侧顶部，防止挡住软件登录
+-				if ($.isInTopWindow()) {
+-					$render.moveToEdge();
+-				}
+-			}
+-		}),
+ 
+ 		errorHandle: new Script({
+ 			name: '全局错误捕获',
+@@ -1133,19 +732,9 @@ export const BackgroundProject = Project.create({
  			oncomplete() {
  				if (self !== top) return;
  
@@ -1075,7 +1098,7 @@ index c9f9c7a..7ed3d86 100644
  
  				const url = window.location.href;
  				const match = matches.some((regex) => {
-@@ -1188,16 +793,7 @@ export const BackgroundProject = Project.create({
+@@ -1188,16 +777,7 @@ export const BackgroundProject = Project.create({
  				const currentStudyScript = [
  					[CXProject.scripts.studyDispatcher, CXProject.scripts.study],
  					CXProject.scripts.work,
@@ -1094,7 +1117,7 @@ index c9f9c7a..7ed3d86 100644
  					.map((m) => {
  						const url = window.location.href;
 diff --git a/packages/scripts/src/projects/common.ts b/packages/scripts/src/projects/common.ts
-index aadb3d9..6d4e67e 100644
+index aadb3d9..96a3f29 100644
 --- a/packages/scripts/src/projects/common.ts
 +++ b/packages/scripts/src/projects/common.ts
 @@ -8,7 +8,7 @@ import {
@@ -1870,6 +1893,15 @@ index aadb3d9..6d4e67e 100644
  							]),
  							duration: 0,
  							onClose: () => {
+@@ -1128,7 +591,7 @@ export const CommonProject = Project.create({
+ 					defaultValue: 0
+ 				},
+ 				/**
+-				 * 是否为动态答题器（题目动态加载，结果逐题累积，例如超星非整卷预览、智慧树/智慧职教逐题作答），
++				 * 是否为动态答题器（题目动态加载、结果逐题累积），
+ 				 * 动态答题器不会自动清空搜索结果，因此需要显示手动清空按钮
+ 				 */
+ 				dynamicResults: {
 @@ -1669,30 +1132,13 @@ const createGuide = () => {
  		});
  	};
@@ -10199,6 +10231,19 @@ index 5cd4488..0000000
 -
 -	return worker;
 -}
+diff --git a/packages/scripts/src/utils/answerer-connect.ts b/packages/scripts/src/utils/answerer-connect.ts
+index e03e2d0..df548e1 100644
+--- a/packages/scripts/src/utils/answerer-connect.ts
++++ b/packages/scripts/src/utils/answerer-connect.ts
+@@ -63,7 +63,7 @@ export function getAnswererConfigProvider() {
+ export function openAnswererConnect(): Window | null {
+ 	if (!provider) return null;
+ 	// v1：拼接 ?from= 当前课程页 origin，作为题库站识别 opener 来源的首要依据
+-	// （雨课堂等 Referrer-Policy: no-referrer 站点下 document.referrer 为空，缺失时只能走手动复制）
++	// （站点设置 Referrer-Policy: no-referrer 时 document.referrer 为空，缺失时只能走手动复制）
+ 	const connectUrl = new URL(provider.connectUrl);
+ 	connectUrl.searchParams.set('from', location.origin);
+ 	const width = 980;
 diff --git a/packages/scripts/src/utils/app.ts b/packages/scripts/src/utils/app.ts
 deleted file mode 100644
 index 9931476..0000000
@@ -10226,6 +10271,106 @@ index 9931476..0000000
 -		$message.error({ content: errorEl.cloneNode(true), duration: 0 });
 -	}
 -};
+diff --git a/packages/scripts/src/utils/config-migrate.ts b/packages/scripts/src/utils/config-migrate.ts
+deleted file mode 100644
+index 2b9c7ed..0000000
+--- a/packages/scripts/src/utils/config-migrate.ts
++++ /dev/null
+@@ -1,94 +0,0 @@
+-import { $store } from 'easy-us';
+-
+-/**
+- * 智慧树学习脚本旧版命名空间。
+- *
+- * 历史版本中，智慧树平台的每个学习脚本都使用独立的命名空间，例如：
+- *   - 共享课：    zhs.gxk.study
+- *   - 新形态课程： zhs.smart.study
+- *   - 校内课：    zhs.xnk.study
+- *   - 新智慧学习： zhs.wisdom.study
+- *   - AI 教学空间： zhs.hike.study / zhs.hike_v2.study
+- * 导致倍速/音量/清晰度等配置需要在每个脚本中重复设置。
+- */
+-const legacyZhsStudyNamespaces = [
+-	'zhs.gxk.study',
+-	'zhs.smart.study',
+-	'zhs.xnk.study',
+-	'zhs.wisdom.study',
+-	'zhs.hike.study',
+-	'zhs.hike_v2.study'
+-];
+-
+-/**
+- * 智慧树学习脚本统一命名空间。
+- *
+- * 所有智慧树学习脚本共用同一命名空间后，任意脚本中修改的配置都会在全部学习脚本中生效，
+- * 只需设置一次。各脚本独有的配置（如定时停止/跳转模式/忽略习惯分弹窗）仍按各自 key 存储，
+- * 因各学习脚本按页面互斥运行，不会互相干扰。
+- */
+-export const zhsStudyNamespace = 'zhs.study';
+-
+-/**
+- * 智慧树作业考试脚本旧版命名空间。
+- *
+- * 历史版本同样存在多个独立命名空间：
+- *   - 共享课作业考试： zhs.gxk.work
+- *   - 新形态课程：     zhs.smart.work
+- *   - 校内课：        zhs.xnk.work
+- *   - AI 教学空间：    zhs.hike.work / zhs.hike.homework
+- */
+-const legacyZhsWorkNamespaces = [
+-	'zhs.gxk.work',
+-	'zhs.smart.work',
+-	'zhs.xnk.work',
+-	'zhs.hike.work',
+-	'zhs.hike.homework'
+-];
+-
+-/**
+- * 智慧树作业考试脚本统一命名空间。
+- *
+- * 所有作业/考试/掌握度脚本共用 `zhs.work`，`workDelay`、`readNotes` 等配置只需设置一次。
+- */
+-export const zhsWorkNamespace = 'zhs.work';
+-
+-/**
+- * 将源命名空间下的 key 迁移到目标命名空间。
+- * - 仅迁移真实存在于存储中的 key（不会写入默认值）。
+- * - 若目标 key 已存在则保留目标值，避免覆盖用户新设置。
+- * - 迁移完成后删除旧 key，因此幂等可重复调用。
+- */
+-function migrateNamespace(sourceNamespaces: string[], targetNamespace: string) {
+-	for (const ns of sourceNamespaces) {
+-		for (const key of $store.list()) {
+-			if (!key.startsWith(ns + '.')) continue;
+-			const newKey = targetNamespace + key.slice(ns.length);
+-			if ($store.get(newKey) === undefined) {
+-				$store.set(newKey, $store.get(key));
+-			}
+-			$store.delete(key);
+-		}
+-	}
+-}
+-
+-/**
+- * 将旧命名空间下已存在的用户配置迁移到统一命名空间，并清理旧 key。
+- *
+- * 说明：
+- * - 配置值仅在用户显式修改后才会写入存储，因此迁移不会把默认值错误地写入新 key。
+- * - 仅当新 key 尚不存在时才复制，避免覆盖迁移期间用户的新修改。
+- * - 每次智慧树学习脚本启动时调用；已迁移过的旧 key 会被删除，因此本函数是幂等的。
+- */
+-export function migrateZhsStudyConfigs() {
+-	migrateNamespace(legacyZhsStudyNamespaces, zhsStudyNamespace);
+-}
+-
+-/**
+- * 将旧命名空间下已存在的作业考试配置迁移到统一的 `zhs.work` 命名空间。
+- *
+- * 说明：与学习脚本迁移相同，幂等可重复调用。
+- */
+-export function migrateZhsWorkConfigs() {
+-	migrateNamespace(legacyZhsWorkNamespaces, zhsWorkNamespace);
+-}
 diff --git a/packages/scripts/src/utils/cx-model.ts b/packages/scripts/src/utils/cx-model.ts
 new file mode 100644
 index 0000000..3c90538
@@ -10893,6 +11038,26 @@ index 0000000..910dcbd
 +		}
 +	});
 +}
+diff --git a/packages/scripts/src/utils/font-decrypt/index.ts b/packages/scripts/src/utils/font-decrypt/index.ts
+index 5a29817..c1110c5 100644
+--- a/packages/scripts/src/utils/font-decrypt/index.ts
++++ b/packages/scripts/src/utils/font-decrypt/index.ts
+@@ -20,11 +20,10 @@
+  * ```
+  *
+  * 【特征表】
+- * 不同平台的加密字体可能基于不同字重设计，特征表按字重拆分以减小体积：
+- *   - cx.bin   ：wght 350/400 字重（超星 SourceHanSansCN-Normal 设计）
+- *   - yuketang.bin ：wght 250 字重（雨课堂 SourceHanSansSC-VF 默认实例）
+- * 表为 FRB2 位打包格式（单平台约 0.76MB），由离线脚本一次性生成，
+- * 与平台加密方式无关，无需随平台改字体而更新。
++ * 加密字体可能基于不同字重设计，特征表按字重拆分以减小体积：
++ *   - cx.bin ：wght 350/400 字重（超星 SourceHanSansCN-Normal 设计）
++ * 表为 FRB2 位打包格式（约 0.76MB），由离线脚本一次性生成，
++ * 与加密方式无关，无需随字体更新而重新生成。
+  */
+ export * from './types';
+ export { loadRefTable } from './ref-table';
 diff --git a/packages/scripts/src/utils/iframe-control-bar.ts b/packages/scripts/src/utils/iframe-control-bar.ts
 index f7a4de2..ee58c67 100644
 --- a/packages/scripts/src/utils/iframe-control-bar.ts
@@ -11078,6 +11243,155 @@ index fce71af..5ee9304 100644
  			const searchInfos = await defaultAnswerWrapperHandler(options.answererWrappers, env);
  			// 将 AI 答案中的 [图片N] 占位符还原为对应图片 URL，使选项匹配可以命中图片选项。
  			// imageUrls 与实际上传的 env.images 严格同序（createImageSuggestion 单一数据源，含转换失败过滤）。
+diff --git a/packages/scripts/src/utils/zhs.configs.ts b/packages/scripts/src/utils/zhs.configs.ts
+deleted file mode 100644
+index 74b7d18..0000000
+--- a/packages/scripts/src/utils/zhs.configs.ts
++++ /dev/null
+@@ -1,143 +0,0 @@
+-import { $ui, Config } from 'easy-us';
+-import { definition, restudy, volume } from './configs';
+-
+-/**
+- * 智慧树学习脚本通用配置。
+- *
+- * 智慧树平台的多个学习脚本（共享课 / 新形态课程 / 校内课 / 新智慧学习 / AI 教学空间）已收敛到
+- * 统一的命名空间 `zhs.study` 下，因此这些通用配置只需要在任意一个学习脚本中设置一次，
+- * 即可在所有智慧树学习脚本中生效。
+- */
+-
+-/**
+- * 智慧树学习倍速配置。
+- * 说明：智慧树倍速最高只能 1.5x，超出存在封号风险，因此与 utils/configs 中的通用倍速配置（最高 16x）区分。
+- */
+-export const playbackRate: Config = {
+-	label: '视频倍速',
+-	tag: 'select',
+-	attrs: { title: '目前智慧树倍速最高只能1.5x，超出有封号风险' },
+-	defaultValue: 1,
+-	options: [
+-		['1', '1 x'],
+-		['1.25', '1.25 x'],
+-		['1.5', '1.5 x']
+-	]
+-};
+-
+-/** 视频黑屏时自动刷新配置 */
+-export const reloadWhenError: Config = {
+-	label: '视频黑屏时自动刷新',
+-	attrs: { type: 'checkbox', title: '当视频出现加载失败，或者黑屏等异常时，自动刷新页面3次尝试修复' },
+-	defaultValue: true
+-};
+-
+-/** 智慧树学习脚本统一使用提示（合并各平台公共提示） */
+-export const studyNotes: Config = {
+-	defaultValue: $ui.notes([
+-		'请手动进入视频、作业、考试页面，脚本会自动运行。',
+-		'章节测试/掌握度请大家观看完视频后手动打开。',
+-		[
+-			'请大家仔细打开视频上方的“学前必读”，查看成绩分布。',
+-			'如果“平时成绩-学习习惯成绩”占比多的话，就需要规律学习。',
+-			'每天定时半小时可获得一分习惯分，如不需要可忽略。'
+-		],
+-		'不要最小化浏览器/关闭电脑屏幕，可能导致脚本暂停。',
+-		'请使用时关闭卡巴斯基软件，否则会被检测出异常脚本。',
+-		'运行中请将浏览器缩放调整至适合的大小（例如 50%），避免元素遮挡导致无法点击。',
+-		'兴趣课会自动下一个，所以不提供脚本。'
+-	]).outerHTML
+-};
+-
+-/** 智慧树作业考试脚本统一使用提示 */
+-export const workNotes: Config = {
+-	defaultValue: $ui.notes([
+-		'自动答题前请在 “通用-全局设置” 中设置题库配置。',
+-		'可以搭配 “通用-在线搜题” 一起使用。',
+-		'⚠️ 如果没开始答题，请尝试刷新页面。',
+-		'⚠️ 禁止一次性打开多个作业/考试页面。',
+-		['⚠️ 答题中请勿进行任何操作，如需暂停请', '等待全部题目搜索完成并执行自动保存功能后再操作。']
+-	]).outerHTML
+-};
+-
+-/** 作业答题开始延迟 */
+-export const workDelay: Config = {
+-	label: '作业答题开始时间延迟（秒）',
+-	defaultValue: 3,
+-	attrs: { type: 'number', min: '1', step: '1', max: '10' }
+-};
+-
+-/** 共享课考前/作业须知阅读确认 */
+-export const readNotes: Config = {
+-	defaultValue: false
+-};
+-
+-/** 共享课-学习脚本独有：定时停止（仅共享课系列学习页面生效） */
+-export const stopTime: Config = {
+-	label: '定时停止',
+-	tag: 'select',
+-	attrs: {
+-		title:
+-			'到时间后自动暂停脚本。仅在共享课系列学习页面生效：\n共享课学习页面(studyvideoh5.zhihuishu.com)、\n新共享课学习页面(studyplush5.zhihuishu.com)、\n新版AI课页面(fusioncourseh5.zhihuishu.com/stuStudy)、\n2025-9月新智慧共享课学习页面(studywisdomh5.zhihuishu.com/study/index)。其它学习平台（新形态/校内课/新智慧/AI教学空间）不受此配置影响。'
+-	},
+-	defaultValue: '0',
+-	options: [
+-		['0', '关闭'],
+-		['0.5', '半小时后'],
+-		['1', '一小时后'],
+-		['2', '两小时后']
+-	]
+-};
+-
+-/** 新形态课程-学习脚本独有：跳转模式（仅新形态课程学习页面生效） */
+-export const switchMode: Config = {
+-	label: '跳转模式',
+-	tag: 'select',
+-	attrs: {
+-		title:
+-			'章节跳转方式。仅在新形态课程学习页面生效：\nsmartcoursestudent.zhihuishu.com \n及其新域名 ai-smart-course-student-pro.zhihuishu.com 的学习页/课程首页。其它学习平台（共享课/校内课/新智慧/AI教学空间）不受此配置影响。'
+-	},
+-	defaultValue: 'job' as 'job' | 'all',
+-	options: [
+-		['job', '只跳转必学章节', '章节后面有必学，并且必学数量未完成的章节，如果全部完成将停止学习'],
+-		['all', '顺序跳转']
+-	]
+-};
+-
+-/** 新智慧学习-学习脚本独有：忽略习惯分弹窗（仅新智慧学习页面生效） */
+-export const skipStudyTimeWarnDialog: Config = {
+-	label: '忽略习惯分弹窗',
+-	attrs: {
+-		title:
+-			'忽略学习时长达到习惯分时弹出的提示弹窗。仅在\n新智慧学习页面(wisdom-mooc.zhihuishu.com/study/index)生效。开启后将不再弹出习惯分提示，但如果课程有习惯分需要自行控制学习时长，忽略提示可能拿不到习惯分。',
+-		type: 'checkbox'
+-	},
+-	defaultValue: false
+-};
+-
+-/**
+- * 学习设置中心统一展示的完整配置。
+- * 各 key 虽然也会在被隐藏的运行脚本中声明，但因同属 `zhs.study` 命名空间，存储值完全一致，
+- * 用户只需在设置中心修改一次即可。
+- */
+-export const studyCenterConfigs: Record<string, Config> = {
+-	notes: studyNotes,
+-	playbackRate,
+-	volume,
+-	definition,
+-	restudy,
+-	reloadWhenError,
+-	stopTime: { ...stopTime, separator: '平台相关高级选项（仅在对应学习页生效）' },
+-	switchMode,
+-	skipStudyTimeWarnDialog
+-};
+-
+-/**
+- * 作业考试设置中心统一展示的完整配置。
+- * 使用 `zhs.work` 命名空间。
+- */
+-export const workCenterConfigs: Record<string, Config> = {
+-	notes: workNotes,
+-	workDelay,
+-	readNotes
+-};
 diff --git a/scripts/build-core.js b/scripts/build-core.js
 index 2d2f0e9..175c57a 100644
 --- a/scripts/build-core.js
