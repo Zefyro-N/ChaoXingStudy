@@ -331,3 +331,54 @@ D1 原选择“自研油猴脚本”的理由之一是“完全可审计”。�
 **删除上游其余 5 个平台**（`zhs` / `yuketang` / `icve` / `zjy` / `icourse`）。
 需动 `index.ts` 注册与 `common.ts` 的跳项目引用，体积只省几十 KB，
 而反复删改会降低可维护性，故保留。
+
+
+## 12. 第二轮变更（M11 回退 / M12 / M13 / M14）
+
+| 编号 | 内容 | 状态 |
+|---|---|---|
+| **M11** | 防失焦暂停 | ❌ **已回退**。用户实测上一版本已无鼠标问题 —— 原因是上游 `JobRunner.media` 原有的 `media.addEventListener('pause', playFunction)`（暂停后约 1 秒自动恢复播放）。M11 多余 |
+| **M12** | 图片题多模态（消费 `env.images`） | ✅ 完成 |
+| **M13** | 截图兜底（SVG foreignObject，零新依赖） | ✅ 完成（有已知限制，见下） |
+| **M14** | 作业/考试手动触发闸门 + 预检 + 责任声明 | ✅ 完成 |
+| **M15** | 重做刷满分 | ⛔ 被证据阻塞，需一次成绩页只读探针 |
+
+### 12.1 需要纠正的两个判断
+
+1. **“题干与选项都是图片”这个场景不需要截图** —— 上游 `createImageSuggestion()` 同时抓题干与选项的
+   `<img>`，转 base64 后按位置替换为 `[图片N]`。M12 只需让 `messages` 解析器消费 `env.images`。
+2. **“上游有人工确认界面”也不准确** —— `workPreCheckMessage()` 与 iframe 分支都是
+   **倒计时自动开始 + 可取消**（opt-out）。M14 把它统一改成显式确认（opt-in）。
+
+### 12.2 M13 的已知限制（不美化）
+
+SVG 渲染器**不加载页面自定义字体**，所以对 `font-cxsecret` 混淆字体类题目**可能仍然无效**，
+除非把混淆字体内嵌进 SVG。这条限制已写进面板 tooltip。
+
+### 12.3 M15 的阻塞点
+
+上游无成绩/正确答案回收机制（无 `quizscore` 处理），M15 必须从零实现，
+且必须依赖成绩页真实 DOM（“我的答案 / 正确答案 / 得分”落在哪里）。
+按 EStudy 项目的教训（猜字段导致最初翻车），**不猜**。
+
+已备好只读探针 `tools/cx_probe_score.py`。用户打开一个已提交作业的成绩页后运行，
+即可采集契约并正确实现 M15。
+
+### 12.4 本轮验证记录
+
+| 项 | 证据 | 结果 |
+|---|---|---|
+| 构建 | `gulp -f ./scripts/build-core.js` → `exit=0`，12.5 s | ✅ |
+| 上游单测 | `testResolver` → `✅ 164 通过 ❌ 0 失败` | ✅ |
+| M11 已移除 | 产物中 `cxstudy M11` 检索为 False；产物回落到 899,023 bytes | ✅ |
+| M12 | 10 项自检全 True（`cx_model_vision` / `image_url` / `env.images` / 等效 `imageOptimizeOn` …） | ✅ |
+| M13 | 10 项自检全 True（`captureElementAsDataUrl` / `env.screenshot` / 失败降级 / 限制已写入 tooltip） | ✅ |
+| M14 | 13 项自检全 True；`考试为硬禁区` 旧文案已消失（M10 由 M14 接管） | ✅ |
+| 产物 | `dist/ocs.user.js` = 912,206 bytes，`@version 5.2.1-cxstudy.1` | ✅ |
+| 补丁 | 9 文件 **+1013 −700**，86,018 bytes，`git apply --check -R` 通过 | ✅ |
+
+### 12.5 工具教训（本轮又踩了一次）
+
+**用内容标记找代码块边界时必须验证闭合**：删除 `cxKeepPlaying` 配置时，我的循环命中了
+`attrs` 的闭合 `},` 而不是配置项的闭合，导致留下悬空的 `defaultValue: true`（语法错误）。
+此后对多行删除一律加断言（前后行内容同时校验），而不是只检查单侧标记。

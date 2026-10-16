@@ -11,7 +11,7 @@
 | 许可证 | MIT（保留上游署名，见产物头部 `@author enncy`） |
 | 补丁文件 | `ocsjs-cxstudy.patch` |
 | 改动范围 | 6 个文件（含 1 个新增） |
-| 产物 | `dist/ocs.user.js`（899,023 bytes，`@version 5.2.1-cxstudy.1`） |
+| 产物 | `dist/ocs.user.js`（912,206 bytes，`@version 5.2.1-cxstudy.1`） |
 
 ## 改动的文件
 
@@ -173,7 +173,7 @@ buildAnswererEnv({type:'single', title, options})   组装上下文
 | M8 | 不重置播放进度（断点续播） | ✅ |
 | M9 | 禁用 `finishJob()` 秒过图片阅读 | ✅ **行为变更，风险最高，必须实机验证** |
 | M10 | 考试硬禁区（不做题、不提交） | ✅ |
-| **M11** | 防失焦暂停（鼠标移出/切窗口不暂停） | ✅ 已完成 |
+| ~~M11~~ | 防失焦暂停 | ❌ **已回退**：上游原有 `pause → play` 已解决该问题，M11 多余 |
 | **M5** | 视频内题目：随机 → **模型作答** | ✅ 已完成 |
 | **M6** | 答不出时不再随机，改为**放弃** | ✅ 已完成 |
 
@@ -189,3 +189,95 @@ buildAnswererEnv({type:'single', title, options})   组装上下文
    会把 `在线网络课程辅助工具` 写成 `鍦ㄧ嚎缃戜笟...`，并顺带把 LF 变 CRLF。用 edit 工具或 Node 做字节安全替换。
 5. 补丁只覆盖 4 个文件；`.npmrc`、`pnpm-workspace.yaml`、`packages/scripts/assets/css/style.css`（构建产物）
    的改动不要混进来。
+
+
+---
+
+# 第二轮变更（M11 回退 / M12 / M13 / M14 / M15）
+
+| 编号 | 内容 | 状态 |
+|---|---|---|
+| **M11** | 防失焦暂停 | ❌ **已回退** —— 用户实测上一版本已无鼠标问题，原因是上游 `JobRunner.media` 里原有的 `media.addEventListener('pause', playFunction)`（暂停后 1 秒自动恢复播放）。M11 属多余，且引入“属性改写不可逆”“对抗教师设置”两项成本 |
+| **M12** | 图片题多模态（消费 `env.images`） | ✅ 完成 |
+| **M13** | 截图兜底（无依赖 foreignObject 方案） | ✅ 完成 |
+| **M14** | 作业/考试手动触发闸门 + 预检 + 责任声明 | ✅ 完成 |
+| **M15** | 重做刷满分 | ⛔ **被证据阻塞**（见下） |
+
+## M12 图片题多模态
+
+**先说一个纠正**：用户提的场景“题干是图片、选项也是图片”**上游管线已经覆盖**。
+`createImageSuggestion()` 会同时从题干与选项抓 `<img>`、转 base64、按位置替换成 `[图片N]`。
+所以那种题**不需要截图**。
+
+真正要做的只是让 `messages` 解析器消费 `env.images`：
+
+```js
+content = [{ type: 'text', text: userText }];
+for (const img of env.images) content.push({ type: 'image_url', image_url: { url: img } });
+```
+
+- 有图片时文本优先用 `env.suggestion_title` / `env.suggestion_options`（含 `[图片N]` 占位符），
+  模型才知道图片对应题干还是某个选项
+- 因为解析器引用了 `env.images`，上游 `isAnswererWrappersSupportImageOptimize()` 自动判定“支持图片题”
+- **一个开关驱动两处**：`cxModelVision` 打开时，`work.ts` 的 `buildAnswererEnv({enableImageOptimize})`
+  也等效打开（否则要用户开两个开关）
+- 成本：DeepSeek 文档口径为**单图最多 384 tokens**，与文本同价
+- 调试日志里对 base64 做了 `slice(0, 2000)` 截断，避免刷爆控制台
+
+## M13 截图兜底
+
+**触发条件（只在文本路径明显不够用时才截图，不做无条件截图）**：
+
+1. 题干文本为空（渲染型题目）
+2. 上游抓到了 `<img>` 但转 base64 失败（跨域 / 防盗链），图片被丢弃
+
+**实现**：零新依赖 —— 克隆节点 → 把 `<img>` 的 `src` 换成已抓到的 data URL
+（**关键**：否则 SVG 里的跨域图片会让 canvas 被污染，`toDataURL()` 直接抛 SecurityError）
+→ 内联关键样式（白名单近似）→ SVG `foreignObject` → canvas → PNG data URL。
+
+**已知限制（已写进面板 tooltip，不美化）**：
+
+1. **SVG 渲染器不加载页面自定义字体** → 对「混淆字体」类题目**可能仍然无效**，
+   除非把混淆字体本身以 base64 `@font-face` 内嵌进 SVG。上游有取字体字节的能力
+   （`font-decrypt` 的 `extractFontFromStyle`），但内嵌字体尚未实现。
+2. 内联样式是白名单近似，复杂布局（绝对定位、浮层、表格）还原度有限。
+3. 若仍残留跨域资源，`toDataURL()` 抛错 → 函数返回 `undefined`，调用方按“无截图”降级。
+
+## M14 作业/考试手动触发闸门
+
+**上游的真实行为（两条路径都是自动开始，我上一轮的判断也不准确）**：
+
+| 路径 | 上游行为 |
+|---|---|
+| 非 iframe | `workPreCheckMessage()` → “将在 N 秒后自动答题，点击取消” ← **倒计时自动开始** |
+| 子 iframe | `commonWork()` 内直接 `$message.info('将在 N 秒后自动答题')` + `setTimeout` |
+
+本分支在 `commonWork` 里把两者**统一替换为「显式确认后才开始」**（opt-in 而非 opt-out）：
+
+1. **授权链（三层）**：`cxWorkEnabled`（默认关）→ `cxWorkConsent`（责任声明）→ `cxExamEnabled`（考试单独授权）
+2. **预检**（回答“当前界面是否有题目、是否可答题”，只读）：
+   题目容器 `.questionLi` / `.TiMu` · 已提交标记 `.testTit_status_complete` ·
+   人脸识别 · 人机验证码 · 考试前置页文案提示 · 题目图片数量提示
+3. **显式确认**：`$modal.confirm` 展示预检报告 + 风险提示，用户点「开始作答」才真正执行
+4. **iframe 降级**：跨窗口弹窗回调不可用（上游注释已说明），改为提示用户点击面板的「开始答题」按钮
+5. **默认关闭**：未开启时直接不启动并告警，避免误触
+
+**不会因用户授权而放行的两项**：人脸识别、人机验证码 —— 出现即停手，必须人工完成。
+
+## M15 重做刷满分 —— 为什么没做
+
+**上游完全没有成绩/正确答案回收机制**（已 grep 确认：无 `quizscore` 处理；`/work/view`
+作业完成界面的代码只打印“已提交、自动答题关闭”）。所以 M15 必须从零实现。
+
+而它**必须依赖成绩页的真实 DOM 契约**（“我的答案 / 正确答案 / 得分”分别落在哪些元素上）。
+同架构的 EStudy 项目最初翻车的原因正是“猜接口字段”，因此这里**不猜**。
+
+**阻塞点**：需要用户花约 10 分钟，在浏览器里打开一个**已提交作业的成绩页**，
+然后运行只读探针采集契约：
+
+```powershell
+python tools\cx_probe_score.py
+```
+
+采集到 `firstQuestionHtml` 与关键词命中后，即可正确实现 M15（答题 → 提交 → 读分 →
+回收正确答案 → 重做，并带最大次数上限与逐步日志）。
