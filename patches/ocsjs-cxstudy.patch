@@ -10,7 +10,7 @@ index 675a8fb..16d156f 100644
 +# 构建产物（本地 gulp 输出，不入库；对应 release/ocs.user.js）
 +release/
 diff --git a/package.json b/package.json
-index a715d35..ce33aa5 100644
+index a715d35..1e730d9 100644
 --- a/package.json
 +++ b/package.json
 @@ -1,6 +1,6 @@
@@ -21,6 +21,15 @@ index a715d35..ce33aa5 100644
  	"description": "ocs - online course script 在线网络课程辅助工具",
  	"types": "./lib/src/core/index.d.ts",
  	"main": "./lib/src/core/index.js",
+@@ -21,7 +21,7 @@
+ 		"test": "tsx tests/resolver.test.ts",
+ 		"test:eus": "pnpm -C A:/VSCode/code/eus build && pnpm -C packages/core link A:/VSCode/code/eus && pnpm -C packages/scripts link A:/VSCode/code/eus && npm run build",
+ 		"test:eus:reset": "pnpm install -w && cd packages/scripts && pnpm install",
+-		"test:answerer": "tsx --import ./tests/setup-browser-env.ts tests/answerer.test.ts",
++		"test:answerer": "tsx --require ./tests/setup-browser-env.cjs tests/answerer.test.ts",
+ 		"build:style": "node scripts/build-style.js",
+ 		"watch:style": "node scripts/build-style.js --watch"
+ 	},
 diff --git a/packages/core/src/core/answer-wrapper/answer.wrapper.handler.ts b/packages/core/src/core/answer-wrapper/answer.wrapper.handler.ts
 index 2c23149..cc67037 100644
 --- a/packages/core/src/core/answer-wrapper/answer.wrapper.handler.ts
@@ -1974,10 +1983,10 @@ index aadb3d9..96a3f29 100644
  		info = h('div', { className: 'result-info no-answer' }, '❌ 题库没搜索到答案');
  	} else {
 diff --git a/packages/scripts/src/projects/cx.ts b/packages/scripts/src/projects/cx.ts
-index da82b2b..4615ead 100644
+index da82b2b..79ac09e 100644
 --- a/packages/scripts/src/projects/cx.ts
 +++ b/packages/scripts/src/projects/cx.ts
-@@ -9,13 +9,17 @@ import {
+@@ -9,13 +9,20 @@ import {
  	splitAnswer,
  	domSearch,
  	domSearchAll,
@@ -1985,7 +1994,10 @@ index da82b2b..4615ead 100644
 +	SearchInformation,
 +	/* 视频内弹题复用上游答题器管道与匹配算法 */
 +	defaultAnswerWrapperHandler,
-+	resolveSingle
++	resolveSingle,
++	resolveMultiple,
++	resolveJudgement,
++	isJudgementOptions
  } from '@ocsjs/core';
  import { crackFont, collectChars, decryptElements, extractFontFromStyle } from '../utils/font-decrypt';
  import { $modal, h, $store, MessageElement, Project, Script, $el, $gm, $$el, $ui, cors, $message } from 'easy-us';
@@ -1996,7 +2008,7 @@ index da82b2b..4615ead 100644
  import {
  	answerWrapperEmptyWarning,
  	commonWork,
-@@ -23,7 +27,9 @@ import {
+@@ -23,12 +30,24 @@ import {
  	extractTextWithImages,
  	removeRedundantWords,
  	simplifyWorkResult,
@@ -2007,7 +2019,22 @@ index da82b2b..4615ead 100644
  } from '../utils/work';
  import { $console, BackgroundProject } from './background';
  import { CommonWorkOptions, playMedia } from '../utils';
-@@ -59,13 +65,12 @@ try {
+ import { createSteps } from '../utils/ui';
+ import { waitForElement, waitForMedia } from '../utils/study';
++import {
++	findVideoQuiz,
++	videoQuizKey,
++	hideVideoQuiz,
++	clickVideoQuizOption,
++	pickVideoQuizOptions,
++	isMultipleChoice,
++	readOptionMarks
++} from '../utils/cx-videoquiz';
++import type { VideoQuiz } from '../utils/cx-videoquiz';
+ 
+ /**
+  * 超星 font-cxsecret 解密用的参考特征表（FRB2 位打包格式，wght 350/400 字重特征）。
+@@ -59,13 +78,12 @@ try {
  const state = {
  	study: {
  		videojs: Object.create({}),
@@ -2022,7 +2049,7 @@ index da82b2b..4615ead 100644
  
  type Attachment = {
  	/** 只有当 module 为 音视频（并且已经播放完成）时才会有这个属性 */
-@@ -224,20 +229,43 @@ export const CXProject = Project.create({
+@@ -224,20 +242,43 @@ export const CXProject = Project.create({
  						['⚠️目前超星倍速风控严重，如果高倍速', '被平台清空进度，请调到1-2倍速学习！']
  					]).outerHTML
  				},
@@ -2070,7 +2097,7 @@ index da82b2b..4615ead 100644
  				},
  				mode: {
  					label: '跳转模式',
-@@ -352,7 +380,13 @@ export const CXProject = Project.create({
+@@ -352,7 +393,13 @@ export const CXProject = Project.create({
  				}
  			},
  			onrender({ panel }) {
@@ -2085,7 +2112,7 @@ index da82b2b..4615ead 100644
  					answerWrapperEmptyWarning(10);
  				}
  
-@@ -429,7 +463,7 @@ export const CXProject = Project.create({
+@@ -429,7 +476,7 @@ export const CXProject = Project.create({
  						// @ts-ignore
  						if (top.currentMedia) {
  							// @ts-ignore 倍速设置
@@ -2094,7 +2121,7 @@ index da82b2b..4615ead 100644
  							// @ts-ignore 音量设置
  							top.currentMedia.volume = this.cfg.volume;
  						}
-@@ -440,7 +474,7 @@ export const CXProject = Project.create({
+@@ -440,7 +487,7 @@ export const CXProject = Project.create({
  
  					await study({
  						...this.cfg,
@@ -2103,7 +2130,7 @@ index da82b2b..4615ead 100644
  					});
  				}
  			}
-@@ -460,6 +494,8 @@ export const CXProject = Project.create({
+@@ -460,6 +507,8 @@ export const CXProject = Project.create({
  				}
  
  				const isExam = /\/exam\/preview/.test(location.href);
@@ -2112,7 +2139,7 @@ index da82b2b..4615ead 100644
  				commonWork({
  					mount_script: this,
  					workerProvider: (opts) => workOrExam(isExam ? 'exam' : 'work', { ...opts, preview_mode: true })
-@@ -592,7 +628,7 @@ export const CXProject = Project.create({
+@@ -592,7 +641,7 @@ export const CXProject = Project.create({
  				if (top === window) {
  					$message.warn({
  						content:
@@ -2121,7 +2148,7 @@ index da82b2b..4615ead 100644
  						duration: 0
  					});
  					// 跳转到最新版本的超星
-@@ -647,6 +683,7 @@ export const CXProject = Project.create({
+@@ -647,6 +696,7 @@ export const CXProject = Project.create({
  						duration: 0
  					});
  					const isExam = /\/exam\/test/.test(location.href);
@@ -2129,7 +2156,7 @@ index da82b2b..4615ead 100644
  					const workOptions = CommonProject.scripts.settings.methods.getWorkOptions();
  					BackgroundProject.scripts.render.methods.pin(this);
  					commonWork({
-@@ -661,77 +698,6 @@ export const CXProject = Project.create({
+@@ -661,77 +711,6 @@ export const CXProject = Project.create({
  				setTimeout(() => $gm.unsafeWindow.topreview(), 3000);
  			}
  		}),
@@ -2207,7 +2234,7 @@ index da82b2b..4615ead 100644
  		studyDispatcher: new Script({
  			name: '课程学习调度器',
  			matches: [['课程学习页面', '/mycourse/studentstudy']],
-@@ -782,7 +748,9 @@ export const CXProject = Project.create({
+@@ -782,7 +761,9 @@ export const CXProject = Project.create({
  				['作业', '/mooc2/work/dowork']
  			],
  			async oncomplete() {
@@ -2218,7 +2245,7 @@ index da82b2b..4615ead 100644
  			}
  		}),
  		// 积分课提示
-@@ -1184,6 +1152,56 @@ function mobilelearn(opts: CommonWorkOptions) {
+@@ -1184,6 +1165,56 @@ function mobilelearn(opts: CommonWorkOptions) {
   * @see 算法详解见 utils/font-decrypt/bitmap.ts 文件头注释
   * @see 参考 https://bbs.tampermonkey.net.cn/thread-2303-1-1.html
   */
@@ -2275,7 +2302,7 @@ index da82b2b..4615ead 100644
  async function mappingRecognize(doc: Document = document) {
  	// 从 @font-face 的 data URI 中提取加密字体
  	const fontBuffer = extractFontFromStyle(doc, 'font-cxsecret');
-@@ -1332,93 +1350,6 @@ const CXAnalyses = {
+@@ -1332,93 +1363,6 @@ const CXAnalyses = {
  	}
  };
  
@@ -2369,7 +2396,7 @@ index da82b2b..4615ead 100644
  
  /**
   * cx 任务学习
-@@ -1685,7 +1616,9 @@ function searchJob(opts: typeof CXProject.scripts.study.cfg, searchedJobs: Job[]
+@@ -1685,7 +1629,9 @@ function searchJob(opts: typeof CXProject.scripts.study.cfg, searchedJobs: Job[]
  									}播放 : ` + jobName;
  								$message.info({ content: msg });
  								$console.log(msg);
@@ -2380,69 +2407,84 @@ index da82b2b..4615ead 100644
  							};
  						}
  					}
-@@ -1804,7 +1737,61 @@ export function fixedVideoProgress() {
+@@ -1804,7 +1750,76 @@ export function fixedVideoProgress() {
  /**
   * 任务点运行器
   */
 +
-+/** 已作答过的视频内题目标识，避免同一弹题被重复送模型（省 token） */
++/** 已尝试过的视频内弹题标识，避免同一道弹题反复请求模型（省 token） */
 +const answeredVideoQuizzes = new Set<string>();
++
  const JobRunner = {
 +	/**
-+	 * 视频内弹题：走模型作答。
++	 * 作答视频内弹题。
 +	 *
-+	 * 复用上游的通用答题器管道（buildAnswererEnv + defaultAnswerWrapperHandler）
-+	 * 与上游的单选匹配算法 resolveSingle，不自己写匹配逻辑。
++	 * 复用通用答题器管道（buildAnswererEnv + defaultAnswerWrapperHandler）与上游的
++	 * 题型匹配算法，不自己写匹配逻辑。
++	 *
++	 * 两个容易出错的地方：作答后**必须点击提交按钮**，否则超星不记录这次作答；
++	 * 未成功作答时**不移除弹题**，留给人工处理（本项目不做随机作答）。
++	 *
++	 * @returns 是否成功提交
 +	 */
-+	async answerVideoQuiz(doc: Document, answererWrappers?: any[]) {
-+		const labels = Array.from(doc.querySelectorAll<HTMLElement>('.ans-videoquiz-opt label'));
-+		const optionTexts = labels.map((l) => (l.innerText || '').trim()).filter(Boolean);
-+		if (!optionTexts.length) return;
-+
++	async answerVideoQuiz(quiz: VideoQuiz, answererWrappers?: any[]): Promise<boolean> {
++		const { texts, options, submit } = quiz;
++		// 弹题出现概率低、难复现：把 DOM 事实一次打全，便于事后定位
++		const marks = readOptionMarks(quiz);
++		$console.log(
++			'[CXStudy] 检测到视频内弹题：选项 ' + texts.length + ' 个，提交按钮=' + (submit ? '有' : '无') +
++				'，DOM 标记=[' + marks + ']'
++		);
++		if (!texts.length || !submit) {
++			$console.warn('[CXStudy] 弹题结构不完整（选项或提交按钮缺失）→ 不处理，留给人工。');
++			return false;
++		}
 +		if (!answererWrappers || !answererWrappers.length) {
-+			$console.warn('[CXStudy] 视频内题目：未配置模型答题器 → 忽略本题（不做随机作答）。');
-+			return;
++			$console.warn('[CXStudy] 视频内题目：未配置模型答题器 → 不处理，留给人工（不做随机作答）。');
++			return false;
 +		}
 +
 +		// 题干：取容器全文并剔除选项文本，避免把选项混进题干
-+		const container = doc.querySelector<HTMLElement>('#video .ans-videoquiz');
-+		let title = (container?.innerText || '').trim();
-+		for (const t of optionTexts) title = title.split(t).join(' ');
++		let title = (quiz.container?.innerText || '').trim();
++		for (const t of texts) title = title.split(t).join(' ');
 +		title = title.replace(/\s+/g, ' ').trim() || '视频内题目';
 +
-+		// 去重：同一道弹题不重复请求模型
-+		if (answeredVideoQuizzes.has(title)) {
-+			$console.log('[CXStudy] 视频内题目已作答过，跳过重复请求：' + title.slice(0, 60));
-+			return;
-+		}
-+
-+		$console.log('[CXStudy] 视频内题目，走模型作答：' + title.slice(0, 80));
 +		try {
-+			const { env } = await buildAnswererEnv({ type: 'single', title, options: optionTexts.join('\n') });
++			const { env } = await buildAnswererEnv({ type: 'single', title, options: texts.join('\n') });
 +			const infos = await defaultAnswerWrapperHandler(answererWrappers, env);
-+			const answers = infos.flatMap((i) => i.results.map((r) => r.answer)).filter(Boolean) as string[];
-+			if (!answers.length) {
-+				$console.warn('[CXStudy] 视频内题目：模型未返回答案 → 忽略本题。');
-+				return;
++			const answerGroups: string[][] = infos
++				.map((i) => i.results.map((r) => String(r.answer ?? '')).filter(Boolean))
++				.filter((g) => g.length);
++			$console.log('[CXStudy] 视频内题目模型答案: ' + JSON.stringify(answerGroups.flat()));
++			if (!answerGroups.length) {
++				$console.warn('[CXStudy] 视频内题目：模型未返回答案 → 留给人工。');
++				return false;
 +			}
-+			const res = resolveSingle(answers, optionTexts);
-+			if (!res.finish || !res.option) {
-+				$console.warn('[CXStudy] 视频内题目：答案无法匹配到选项 → 忽略本题。');
-+				return;
++			const multiple = isMultipleChoice(quiz);
++			const picked = pickVideoQuizOptions(answerGroups, texts, multiple);
++			if (!picked.length) {
++				$console.warn(
++					'[CXStudy] 视频内题目：答案无法匹配到任何选项 → 留给人工。答案=' + JSON.stringify(answerGroups.flat())
++				);
++				return false;
 +			}
-+			const idx = optionTexts.indexOf(res.option);
-+			const target = idx >= 0 ? labels[idx] : labels.find((l) => (l.innerText || '').trim() === res.option);
-+			target?.click();
-+			if (target) answeredVideoQuizzes.add(title);
-+			$console.log('[CXStudy] 视频内题目 → ' + res.option);
++			for (const text of picked) {
++				const idx = texts.indexOf(text);
++				if (idx >= 0) clickVideoQuizOption(options[idx]);
++				await $.sleep(200);
++			}
++			submit.click();
++			$console.log('[CXStudy] 视频内题目 → 已提交：' + picked.join('、'));
++			return true;
 +		} catch (e) {
 +			$console.warn('[CXStudy] 视频内题目作答失败：' + (e as any)?.message);
++			return false;
 +		}
 +	},
  	/**
  	 * 播放视频和音频
  	 */
-@@ -1814,7 +1801,9 @@ const JobRunner = {
+@@ -1814,7 +1829,9 @@ const JobRunner = {
  			volume: number;
  			videoQuizStrategy: VideoQuizStrategy;
  		},
@@ -2453,13 +2495,14 @@ index da82b2b..4615ead 100644
  	) {
  		const { playbackRate = 1, volume = 0 } = setting;
  
-@@ -1835,30 +1824,26 @@ const JobRunner = {
+@@ -1835,30 +1852,31 @@ const JobRunner = {
  		// 固定视频进度
  		fixedVideoProgress();
  
 -		// 随机作答视频内题目
 -		if (setting.videoQuizStrategy === 'random') {
-+		// 视频内题目：走模型作答（上游是随机作答，本项目禁止随机；且上游的循环无终止条件，这里补上）
++		// 视频内弹题：交给模型作答（本项目不做随机作答）。
++		// 弹题可能在嵌套 iframe 中，且作答后必须提交，因此按「查找 → 作答 → 仅在提交成功后隐藏」处理。
 +		if (setting.videoQuizStrategy === 'ai') {
  			const loop = async () => {
 -				const submitBtn = () => doc.querySelector<HTMLElement>('#videoquiz-submit');
@@ -2476,29 +2519,35 @@ index da82b2b..4615ead 100644
 -						container.remove();
 -					}
 -					if (components.length) {
+-						for (const com of components) {
+-							com.style.display = 'none';
 +				while (!media.ended) {
-+					const submitBtn = doc.querySelector<HTMLElement>('#videoquiz-submit');
-+					if (submitBtn) {
-+						await JobRunner.answerVideoQuiz(doc, answererWrappers);
-+						await $.sleep(3000);
-+						// 隐藏视频内题目元素
-+						const container = doc.querySelector<HTMLElement>('#video .ans-videoquiz');
-+						const components = Array.from(doc.querySelectorAll<HTMLElement>('.x-component-default'));
-+						if (container) {
-+							container.remove();
++					const quiz = findVideoQuiz(doc);
++					if (quiz) {
++						const key = videoQuizKey(quiz);
++						if (answeredVideoQuizzes.has(key)) {
++							await $.sleep(3000);
++							continue;
 +						}
- 						for (const com of components) {
- 							com.style.display = 'none';
++						// 先登记再作答：同一道题只请求一次模型（无论成败），避免反复消耗 token
++						answeredVideoQuizzes.add(key);
++						const submitted = await JobRunner.answerVideoQuiz(quiz, answererWrappers);
++						if (submitted) {
++							await $.sleep(1000);
++							hideVideoQuiz(quiz);
++						} else {
++							$console.warn('[CXStudy] 弹题未作答成功 → 保留弹题，请手动作答（不会重复尝试）。');
++							await $.sleep(3000);
  						}
  					}
-+					await $.sleep(3000);
++					await $.sleep(2000);
  				}
 -				await $.sleep(3000);
 -				await loop();
  			};
  			loop();
  		}
-@@ -1904,8 +1889,8 @@ const JobRunner = {
+@@ -1904,8 +1922,8 @@ const JobRunner = {
  			$console.log('视频开始播放');
  			media.volume = volume;
  
@@ -2509,7 +2558,7 @@ index da82b2b..4615ead 100644
  
  			// 使用 setTimeout 解决 The play() request was interrupted by a call to pause() 问题
  			setTimeout(() => {
-@@ -1921,8 +1906,33 @@ const JobRunner = {
+@@ -1921,8 +1939,33 @@ const JobRunner = {
  	 * 阅读，PPT
  	 */
  	async read(win: Window & { finishJob?: Function }) {
@@ -2545,7 +2594,7 @@ index da82b2b..4615ead 100644
  		await $.sleep(3000);
  	},
  	/**
-@@ -1960,6 +1970,16 @@ const JobRunner = {
+@@ -1960,6 +2003,16 @@ const JobRunner = {
  			return answerWrapperEmptyWarning(0);
  		}
  
@@ -2562,7 +2611,7 @@ index da82b2b..4615ead 100644
  		// 章节测试未使用 commonWork，这里手动触发状态更新
  		CommonEvents.emitWorkerStateChange('start');
  
-@@ -2131,48 +2151,12 @@ const JobRunner = {
+@@ -2131,48 +2184,12 @@ const JobRunner = {
  					simplifyWorkResult(curr, chapterTestTaskQuestionTitleText, index)
  				);
  
@@ -2614,7 +2663,7 @@ index da82b2b..4615ead 100644
  				}
  			},
  			async onElementSearched(elements) {
-@@ -2232,6 +2216,26 @@ const JobRunner = {
+@@ -2232,6 +2249,26 @@ const JobRunner = {
  					// @ts-ignore 提交
  					frameWindow.btnBlueSubmit();
  
@@ -2641,7 +2690,7 @@ index da82b2b..4615ead 100644
  					await $.sleep(3000);
  					/** 确定按钮 */
  					// @ts-ignore 确定
-@@ -2351,6 +2355,56 @@ async function readerAndFillHandle(searchInfos: SearchInformation[], list: HTMLE
+@@ -2351,6 +2388,56 @@ async function readerAndFillHandle(searchInfos: SearchInformation[], list: HTMLE
  	return { finish: false };
  }
  
@@ -10794,6 +10843,181 @@ index 0000000..d4ce7a9
 +		return undefined;
 +	}
 +}
+diff --git a/packages/scripts/src/utils/cx-videoquiz.ts b/packages/scripts/src/utils/cx-videoquiz.ts
+new file mode 100644
+index 0000000..20809a6
+--- /dev/null
++++ b/packages/scripts/src/utils/cx-videoquiz.ts
+@@ -0,0 +1,169 @@
++/**
++ * 视频内弹题的定位与选项选择。
++ *
++ * 这类题有三个容易踩的坑：
++ *   1. 位置不固定：可能渲染在播放器所在文档里，也可能在**嵌套 iframe** 中，
++ *      只查当前 document 会一个都找不到（表现为弹题闪一下就消失、从未作答）；
++ *   2. 选择器有两套历史形态：选项 `.ans-videoquiz-opt label` 或
++ *      `input[name='ans-videoquiz-opt']`；提交按钮 `#videoquiz-submit` 或
++ *      `.ans-videoquiz-submit`；
++ *   3. 题型不一定是单选，还可能是判断（两个极性选项）或多选（checkbox）。
++ *
++ * 本模块只负责「找到元素」与「决定点哪个选项」，把答案文本匹配交给上游的
++ * 题型算法；作答与提交动作由调用方执行。
++ */
++import { resolveSingle, resolveMultiple, resolveJudgement, isJudgementOptions } from '@ocsjs/core';
++
++/** 弹题在页面中的实际位置与元素 */
++export interface VideoQuiz {
++	/** 弹题元素所在的 document */
++	doc: Document;
++	/** 弹题容器（提交成功后用于隐藏） */
++	container: HTMLElement | null;
++	/** 提交按钮 */
++	submit: HTMLElement | null;
++	/** 可点击的选项元素，与 texts 同序 */
++	options: HTMLElement[];
++	/** 选项文本，与 options 同序 */
++	texts: string[];
++}
++
++/**
++ * 收集 rootDoc 及其所有同源子 iframe 的 document（深度优先）。
++ *
++ * 跨域或尚未加载的 iframe 会被跳过。
++ */
++export function collectAccessibleDocuments(rootDoc: Document): Document[] {
++	const docs: Document[] = [];
++	const seen = new Set<Document>();
++	const walk = (d: Document | null | undefined) => {
++		if (!d || seen.has(d)) return;
++		seen.add(d);
++		docs.push(d);
++		for (const f of Array.from(d.querySelectorAll('iframe'))) {
++			try {
++				walk((f as HTMLIFrameElement).contentDocument);
++			} catch {
++				// 跨域 iframe：忽略
++			}
++		}
++	};
++	walk(rootDoc);
++	return docs;
++}
++
++/** 在单个文档树中查找弹题 */
++export function searchVideoQuiz(root: Document): VideoQuiz | undefined {
++	for (const d of collectAccessibleDocuments(root)) {
++		const labels = Array.from(d.querySelectorAll<HTMLElement>('.ans-videoquiz-opt label'));
++		const inputs = Array.from(d.querySelectorAll<HTMLInputElement>("input[name='ans-videoquiz-opt']"));
++		const options: HTMLElement[] = labels.length ? labels : inputs;
++		const submit = d.querySelector<HTMLElement>('#videoquiz-submit, .ans-videoquiz-submit');
++		if (!options.length && !submit) continue;
++		const texts = options.map((o) => {
++			const holder = o.tagName === 'INPUT' ? ((o.closest('label') as HTMLElement) ?? o.parentElement ?? o) : o;
++			return (holder.innerText || '').trim();
++		});
++		return { doc: d, container: d.querySelector<HTMLElement>('.ans-videoquiz'), submit, options, texts };
++	}
++	return undefined;
++}
++
++/**
++ * 查找弹题：先查给定文档的整棵子树，再退回顶层文档。
++ *
++ * 弹题可能出现在播放器之外的同级框架中，因此单查一棵树不够。
++ */
++export function findVideoQuiz(rootDoc: Document): VideoQuiz | undefined {
++	const roots: Document[] = [rootDoc];
++	try {
++		const topDoc = rootDoc.defaultView?.top?.document;
++		if (topDoc && topDoc !== rootDoc) roots.push(topDoc);
++	} catch {
++		// 顶层跨域：忽略
++	}
++	for (const root of roots) {
++		const quiz = searchVideoQuiz(root);
++		if (quiz) return quiz;
++	}
++	return undefined;
++}
++
++/** 弹题标识（仅用选项），用于去重，避免同一道题反复请求模型 */
++export function videoQuizKey(quiz: VideoQuiz): string {
++	return quiz.texts.join('|').slice(0, 300);
++}
++
++/** 点击选项：label 直接 click；input 需先置 checked 再派发 click 与 change */
++export function clickVideoQuizOption(el: HTMLElement) {
++	if (el.tagName === 'INPUT') {
++		const input = el as HTMLInputElement;
++		input.checked = true;
++		input.click();
++		const view = input.ownerDocument?.defaultView;
++		if (view) input.dispatchEvent(new view.Event('change', { bubbles: true }));
++	} else {
++		el.click();
++	}
++}
++
++/**
++ * 从模型答案中选出要点击的选项文本。
++ *
++ * @param answerGroups 每个答题器返回的答案分组（判断题算法需要分组，其余先拍平）
++ * @param texts        与选项元素同序的选项文本
++ * @param multiple     是否多选（由选项 input 类型判定）
++ * @returns 要点击的选项文本，未匹配到则为空数组
++ */
++export function pickVideoQuizOptions(answerGroups: string[][], texts: string[], multiple: boolean): string[] {
++	const flat = answerGroups.flat();
++	if (multiple) {
++		const r = resolveMultiple(flat, texts);
++		if (r.finish) return ((r.options ?? r.plainOptions) as string[]) ?? [];
++		return [];
++	}
++	// 选项具备判断题性质时交给判断题算法（它认「正确/错误」「对/错」等极性词）
++	if (isJudgementOptions(texts.map((t) => t.trim()))) {
++		const r = resolveJudgement(answerGroups, texts);
++		return r.finish && r.option ? [r.option] : [];
++	}
++	const r = resolveSingle(flat, texts);
++	return r.finish && r.option ? [r.option] : [];
++}
++
++/** 提交成功后隐藏弹题，避免遮挡播放器 */
++export function hideVideoQuiz(quiz: VideoQuiz) {
++	quiz.container?.remove();
++	for (const com of Array.from(quiz.doc.querySelectorAll<HTMLElement>('.x-component-default'))) {
++		com.style.display = 'none';
++	}
++}
++
++/**
++ * 取选项元素对应的 input。
++ *
++ * 选项元素既可能是 `label`（内含 input），也可能是 input 本身，读取
++ * `type` / `value` 前必须先归一化，否则 label 上读到的永远是 undefined。
++ */
++export function optionInput(el: HTMLElement): HTMLInputElement | undefined {
++	if (el.tagName === 'INPUT') return el as HTMLInputElement;
++	const inner = el.querySelector('input');
++	return (inner as HTMLInputElement | null) ?? undefined;
++}
++
++/** 选项是否为多选（checkbox）——决定用多选还是单选匹配算法 */
++export function isMultipleChoice(quiz: VideoQuiz): boolean {
++	return quiz.options.some((o) => optionInput(o)?.type === 'checkbox');
++}
++
++/**
++ * 读取选项上的 DOM 标记（input 的 value 属性）。
++ *
++ * 有资料表明超星曾把正确项标为 `value="true"`；此处只做采集与记录，
++ * **不作为答案来源**，直到在真实弹题上确认其含义。
++ */
++export function readOptionMarks(quiz: VideoQuiz): string {
++	return quiz.options
++		.map((o) => optionInput(o)?.getAttribute('value') ?? '')
++		.join(',');
++}
 diff --git a/packages/scripts/src/utils/cx-work-gate.ts b/packages/scripts/src/utils/cx-work-gate.ts
 new file mode 100644
 index 0000000..910dcbd
@@ -11393,7 +11617,7 @@ index 74b7d18..0000000
 -	readNotes
 -};
 diff --git a/scripts/build-core.js b/scripts/build-core.js
-index 2d2f0e9..175c57a 100644
+index 2d2f0e9..19f304f 100644
 --- a/scripts/build-core.js
 +++ b/scripts/build-core.js
 @@ -6,7 +6,7 @@ const util = require('util');
@@ -11405,17 +11629,22 @@ index 2d2f0e9..175c57a 100644
  const path = require('path');
  const dotenv = require('dotenv');
  const fs = require('fs');
-@@ -24,6 +24,9 @@ function cleanOutput() {
+@@ -24,6 +24,14 @@ function cleanOutput() {
  
  async function testResolver() {
  	await execOut('tsx ../tests/resolver.test.ts');
 +	// handler 是以字符串形式存在的运行期源码（由 Function() 求值），
 +	// tsc 查不出其中的引用错误，因此构建前必须真实求值并调用一遍。
 +	await execOut('tsx ../tests/cx-model.handler.test.ts');
++	// 弹题定位需要真实 DOM（jsdom），用 --require 预加载浏览器环境。
++	// 注意：预加载路径相对仓库根解析，因此这一条切到仓库根执行。
++	await execOut('tsx --require ./tests/setup-browser-env.cjs tests/cx-videoquiz.test.ts', {
++		cwd: path.join(__dirname, '..')
++	});
  }
  
  async function buildPackages() {
-@@ -48,18 +51,30 @@ async function createUserJs() {
+@@ -48,18 +56,30 @@ async function createUserJs() {
  	// @ts-ignore
  	const ocs = require(path.join(distPath, 'index.js'));
  
@@ -11452,7 +11681,7 @@ index 2d2f0e9..175c57a 100644
  					.flat()
  			)
  		);
-@@ -76,23 +91,23 @@ async function createUserJs() {
+@@ -76,23 +96,23 @@ async function createUserJs() {
  				gap: '\t'.repeat(4)
  			},
  			metadata: {
@@ -11490,7 +11719,7 @@ index 2d2f0e9..175c57a 100644
  				match: matchMetadata,
  				grant: [
  					'GM_info',
-@@ -111,8 +126,7 @@ async function createUserJs() {
+@@ -111,8 +131,7 @@ async function createUserJs() {
  				],
  				require: [path.join(__dirname, distPath, 'index.js')],
  				resource: [`STYLE ${CSS_PATH}`],
@@ -11500,7 +11729,7 @@ index 2d2f0e9..175c57a 100644
  			},
  			entry: path.join(__dirname, '../packages/scripts/entry.js'),
  			dist: path.join(__dirname, distPath, 'ocs.user.js')
-@@ -122,8 +136,18 @@ async function createUserJs() {
+@@ -122,8 +141,18 @@ async function createUserJs() {
  	const officialOpts = createOptions();
  	console.log('CreateUserScript: ', officialOpts.metadata.name, officialOpts.dist);
  	await createUserScript(officialOpts);
@@ -11521,7 +11750,7 @@ index 2d2f0e9..175c57a 100644
  
  	/** 创建调试脚本 */
  	const devOpts = createOptions();
-@@ -141,18 +165,6 @@ async function createUserJs() {
+@@ -141,18 +170,6 @@ async function createUserJs() {
  	);
  	console.log('createUserScript: ', devOpts.metadata.name, devOpts.dist);
  	await createUserScript(devOpts);
@@ -11540,6 +11769,19 @@ index 2d2f0e9..175c57a 100644
  }
  
  exports.default = series(cleanOutput, testResolver, buildPackages, createUserJs);
+diff --git a/tests/answerer.test.ts b/tests/answerer.test.ts
+index 9835802..5f397c6 100644
+--- a/tests/answerer.test.ts
++++ b/tests/answerer.test.ts
+@@ -21,7 +21,7 @@
+  * 所有测试参数（title / options / type / wrappers / verbose / aiImageSuggestion）均来自配置文件，
+  * CLI 仅支持 --config 指定配置文件路径。
+  *
+- * 浏览器环境模拟由 tests/setup-browser-env.ts 通过 `tsx --import` 预加载，
++ * 浏览器环境模拟由 tests/setup-browser-env.cjs 通过 `tsx --require` 预加载，
+  * 不能在本文件内 require('browser-env')：ES import 会被提升到 require 之前执行，
+  * 导致 easy-us 顶层 `class IElement extends HTMLElement` 先于 HTMLElement 注册而崩溃。
+  */
 diff --git a/tests/cx-model.handler.test.ts b/tests/cx-model.handler.test.ts
 new file mode 100644
 index 0000000..f5f68c1
@@ -11725,3 +11967,260 @@ index 0000000..f5f68c1
 +	failures.forEach((f) => console.log('  - ' + f));
 +	process.exit(1);
 +}
+diff --git a/tests/cx-videoquiz.test.ts b/tests/cx-videoquiz.test.ts
+new file mode 100644
+index 0000000..64996a0
+--- /dev/null
++++ b/tests/cx-videoquiz.test.ts
+@@ -0,0 +1,197 @@
++/**
++ * 视频内弹题：定位与选项选择测试
++ *
++ * 需要浏览器环境（jsdom），由 tsx --import ./tests/setup-browser-env.ts 预加载。
++ *
++ * 守住两处曾真实出错的地方：
++ *   1. 弹题位于**嵌套 iframe** 中——只查当前 document 会一个都找不到，
++ *      表现为弹题闪一下就消失、从未真正作答；
++ *   2. 作答后**必须点击提交按钮**，否则超星不记录作答；
++ *      并且选项匹配要区分单选 / 判断 / 多选（判断题的答案格式与单选不同）。
++ */
++
++import {
++	collectAccessibleDocuments,
++	findVideoQuiz,
++	videoQuizKey,
++	pickVideoQuizOptions,
++	isMultipleChoice,
++	optionInput,
++	readOptionMarks
++} from '../packages/scripts/src/utils/cx-videoquiz';
++
++let pass = 0;
++const failures: string[] = [];
++
++function ok(name: string, cond: boolean, detail?: string) {
++	if (cond) {
++		pass++;
++		console.log('  ✅ ' + name);
++	} else {
++		failures.push(name + (detail ? ' —— ' + detail : ''));
++		console.log('  ❌ ' + name + (detail ? ' —— ' + detail : ''));
++	}
++}
++
++/** jsdom 未实现 innerText，测试里直接赋属性即可（生产代码读的就是 innerText） */
++function setText(el: any, text: string) {
++	el.innerText = text;
++	return el;
++}
++
++/** 在指定文档里创建一层 iframe 并返回其 contentDocument */
++function addFrame(doc: Document): Document {
++	const f = doc.createElement('iframe');
++	doc.body.appendChild(f);
++	const cd = f.contentDocument;
++	if (!cd) throw new Error('jsdom 未提供 contentDocument');
++	cd.body.innerHTML = '';
++	return cd;
++}
++
++/** 弹题 HTML：两种选项形态各一套 */
++const QUIZ_LABEL_FORM = `
++	<div class="ans-videoquiz">
++		<div class="ans-videoquiz-opt">
++			<label><input type="radio" value="false">错</label>
++			<label><input type="radio" value="true">对</label>
++		</div>
++		<div class="ans-videoquiz-submit">提交</div>
++	</div>`;
++
++const QUIZ_INPUT_FORM = `
++	<div class="ans-videoquiz">
++		<div class="ans-videoquiz-opt"><label><input type="radio" name="ans-videoquiz-opt" value="false">甲</label></div>
++		<div class="ans-videoquiz-opt"><label><input type="radio" name="ans-videoquiz-opt" value="true">乙</label></div>
++		<button id="videoquiz-submit">提交</button>
++	</div>`;
++
++console.log('\n=== ① 弹题位于嵌套 iframe（曾真实出错的场景） ===');
++{
++	const top = document;
++	top.body.innerHTML = '';
++	const inner = addFrame(addFrame(top)); // 两层
++	inner.body.innerHTML = QUIZ_LABEL_FORM;
++	inner.querySelectorAll('label').forEach((l) => setText(l, l.textContent || ''));
++
++	const docs = collectAccessibleDocuments(top);
++	ok('collectAccessibleDocuments 能递归到嵌套 iframe', docs.includes(inner), '共 ' + docs.length + ' 个文档');
++
++	const quiz = findVideoQuiz(top);
++	ok('★ 能从嵌套 iframe 中找到弹题（只查当前 document 会漏掉）', !!quiz);
++	if (quiz) {
++		ok('找到的是最内层文档', quiz.doc === inner);
++		ok('选项数正确（2）', quiz.texts.length === 2, JSON.stringify(quiz.texts));
++		ok('选项文本正确', quiz.texts[0] === '错' && quiz.texts[1] === '对', JSON.stringify(quiz.texts));
++		ok('提交按钮存在（.ans-videoquiz-submit 形态）', !!quiz.submit);
++		ok('readOptionMarks 读到 DOM 标记', readOptionMarks(quiz) === 'false,true', readOptionMarks(quiz));
++		ok('videoQuizKey 可用于去重', videoQuizKey(quiz) === '错|对', videoQuizKey(quiz));
++	}
++}
++
++console.log('\n=== ② 弹题在宿主文档里（另一姿态，不应回归） ===');
++{
++	const top = document;
++	top.body.innerHTML = QUIZ_INPUT_FORM;
++	top.querySelectorAll('label').forEach((l) => setText(l, l.textContent || ''));
++
++	const quiz = findVideoQuiz(top);
++	ok('能找到弹题', !!quiz);
++	if (quiz) {
++		ok('命中 input[name=ans-videoquiz-opt] 形态的选项', quiz.texts.length === 2, JSON.stringify(quiz.texts));
++		ok('提交按钮存在（#videoquiz-submit 形态）', !!quiz.submit);
++	}
++}
++
++console.log('\n=== ③ 没有弹题时不误报 ===');
++{
++	const top = document;
++	top.body.innerHTML = '<div class="video"><video id="video"></video></div>';
++	ok('无弹题时返回 undefined', findVideoQuiz(top) === undefined);
++	ok('collectAccessibleDocuments 至少包含自身', collectAccessibleDocuments(top).length >= 1);
++}
++
++console.log('\n=== ③.5 选题型与 DOM 标记必须从内层 input 读（label 上没有 type/value） ===');
++{
++	const top = document;
++	// label 形态 + checkbox：多选题
++	top.body.innerHTML = `
++		<div class="ans-videoquiz">
++			<div class="ans-videoquiz-opt">
++				<label><input type="checkbox" value="true">甲</label>
++				<label><input type="checkbox" value="false">乙</label>
++				<div class="ans-videoquiz-submit">提交</div>
++			</div>
++		</div>`;
++	top.querySelectorAll('label').forEach((l) => setText(l, l.textContent || ''));
++	const multi = findVideoQuiz(top);
++	ok('找到多选题弹题', !!multi);
++	if (multi) {
++		ok('★ label 形态也能识别出多选（原实现从 label 读 type，恒为单选）', isMultipleChoice(multi) === true);
++		ok('★ readOptionMarks 从内层 input 读到标记', readOptionMarks(multi) === 'true,false', readOptionMarks(multi));
++		ok('optionInput 能拿到内层 input', optionInput(multi.options[0])?.type === 'checkbox');
++	}
++
++	// label 形态 + radio：单选
++	top.body.innerHTML = `
++		<div class="ans-videoquiz">
++			<div class="ans-videoquiz-opt">
++				<label><input type="radio" value="false">错</label>
++				<label><input type="radio" value="true">对</label>
++				<div class="ans-videoquiz-submit">提交</div>
++			</div>
++		</div>`;
++	top.querySelectorAll('label').forEach((l) => setText(l, l.textContent || ''));
++	const single = findVideoQuiz(top);
++	if (single) {
++		ok('label 形态单选不被误判为多选', isMultipleChoice(single) === false);
++	}
++}
++
++console.log('\n=== ④ 选项匹配：单选 / 判断 / 多选 ===');
++{
++	// 单选：原文精确匹配
++	const r1 = pickVideoQuizOptions([['信念']], ['信念', '真理'], false);
++	ok('单选-按选项原文命中', r1.length === 1 && r1[0] === '信念', JSON.stringify(r1));
++
++	// 单选：纯字母兜底
++	const r2 = pickVideoQuizOptions([['B']], ['信念', '真理'], false);
++	ok('单选-按字母兜底命中', r2.length === 1 && r2[0] === '真理', JSON.stringify(r2));
++
++	// 判断题：模型按系统提示词返回「正确/错误」，选项是「对/错」，必须靠极性词映射
++	const r3 = pickVideoQuizOptions([['正确']], ['错', '对'], false);
++	ok('判断题-「正确」映射到含「对」的选项', r3.length === 1 && r3[0] === '对', JSON.stringify(r3));
++
++	const r4 = pickVideoQuizOptions([['错误']], ['错', '对'], false);
++	ok('判断题-「错误」映射到含「错」的选项', r4.length === 1 && r4[0] === '错', JSON.stringify(r4));
++
++	// 多选：字母列表
++	const r5 = pickVideoQuizOptions([['A,C']], ['甲', '乙', '丙'], true);
++	ok('多选-字母列表命中多项', r5.length === 2 && r5[0] === '甲' && r5[1] === '丙', JSON.stringify(r5));
++
++	// 多选：文本列表
++	const r6 = pickVideoQuizOptions([['甲,丙']], ['甲', '乙', '丙'], true);
++	ok('多选-文本列表命中多项', r6.length === 2 && r6.includes('甲') && r6.includes('丙'), JSON.stringify(r6));
++
++	// 匹配不上时必须返回空数组（调用方据此保留弹题、不伪造提交）
++	const r7 = pickVideoQuizOptions([['完全无关的答案']], ['甲', '乙'], false);
++	ok('匹配不上时返回空数组（不随机作答）', r7.length === 0, JSON.stringify(r7));
++
++	ok('空答案返回空数组', pickVideoQuizOptions([], ['甲'], false).length === 0);
++}
++
++console.log(
++	'\n' +
++		(failures.length === 0 ? '✅ ' : '❌ ') +
++		pass +
++		' 通过   ❌ ' +
++		failures.length +
++		' 失败   共 ' +
++		(pass + failures.length) +
++		' 项'
++);
++if (failures.length) {
++	console.log('\n失败项：');
++	failures.forEach((f) => console.log('  - ' + f));
++	process.exit(1);
++}
+diff --git a/tests/setup-browser-env.cjs b/tests/setup-browser-env.cjs
+new file mode 100644
+index 0000000..906f3cb
+--- /dev/null
++++ b/tests/setup-browser-env.cjs
+@@ -0,0 +1,23 @@
++/**
++ * 测试预加载：在任意业务模块导入前模拟浏览器环境。
++ *
++ * 用法：tsx --require ../tests/setup-browser-env.cjs ../tests/xxx.test.ts
++ *
++ * 为什么必须是独立预加载文件？
++ *   easy-us 在模块顶层执行 `class IElement extends HTMLElement {}`，
++ *   只要任何 import 触发它加载，就会立即引用全局 HTMLElement；而 ES import 会被
++ *   提升到模块顶部，写在 require('browser-env')() 之后并不能保证先执行。
++ *   因此必须由外部预加载，在测试文件被加载之前就装好 HTMLElement 等全局符号。
++ *
++ * 为什么是 .cjs 而不是 .ts？
++ *   用 `tsx --import ./setup-browser-env.ts` 会走 Node 的 ESM 加载器，
++ *   而它不认 .ts 扩展名，直接报 ERR_UNKNOWN_FILE_EXTENSION（tsx 4.x + Node 18 实测）。
++ *   `--require` 走 CommonJS，不受此限制。
++ */
++require('browser-env')();
++
++// @ts-ignore - 构建管线也需要 unsafeWindow
++globalThis.unsafeWindow = {};
++
++// @ts-ignore - GM_xmlhttpRequest 在 Node 下不可用，request() 会降级为 node-fetch
++globalThis.GM_xmlhttpRequest = undefined;
+diff --git a/tests/setup-browser-env.ts b/tests/setup-browser-env.ts
+deleted file mode 100644
+index a766b50..0000000
+--- a/tests/setup-browser-env.ts
++++ /dev/null
+@@ -1,19 +0,0 @@
+-/**
+- * 测试预加载：在任意业务模块导入前模拟浏览器环境。
+- *
+- * 用法：tsx --import ./tests/setup-browser-env.ts tests/answerer.test.ts
+- *
+- * 为什么必须是独立预加载文件？
+- *   easy-us 在模块顶层执行 `class IElement extends HTMLElement {}`，
+- *   只要任何 `import` 触发它加载，就会立即引用全局 HTMLElement。
+- *   而 ES `import` 语句会被提升到模块顶部，写在 `require('browser-env')()`
+- *   之前并不能保证先执行——因此必须用 tsx 的 --import 在加载测试文件
+- *   之前就装好 HTMLElement 等全局符号。
+- */
+-require('browser-env')();
+-
+-// @ts-ignore - 构建管线也需要 unsafeWindow
+-globalThis.unsafeWindow = {};
+-
+-// @ts-ignore - GM_xmlhttpRequest 在 Node 下不可用，request() 会降级为 node-fetch
+-globalThis.GM_xmlhttpRequest = undefined;

@@ -1041,3 +1041,95 @@ ls packages/scripts/src/utils/ | grep -i 'zhs\|ykt\|icve\|icourse\|zjy'
 | 补丁 | 425,687 bytes，31 文件，10 处删除，反向应用自检通过 |
 | 内层仓库 | `30f2409` |
 | 残留 | 其他平台痕迹、`docs.ocsjs.com`、`localhost`、`RemotePlaywright` 全为 0；MIT 声明保留 |
+
+
+## 24. M5 视频内弹题作答（用户实机报告后修复）
+
+### 24.1 现象与定位方式
+
+用户报告：视频中弹出的题目无法用 AI 作答，「看起来直接跳过去了」；并提示这类题概率低、难复现。
+本轮**没有靠实机复现**（弹题未出现），而是靠**代码对比**定位：
+
+1. 与上游 `8b25a3f` 的原实现逐行对比；
+2. 参考一个专做「超星视频中题目自动答题」的第三方脚本的取值路径。
+
+### 24.2 三个缺陷
+
+**D1 漏点提交（致命，重写上游「随机作答」时引入）**
+
+```js
+// 上游
+answer?.click();  submitBtn()?.click();
+// 本分支（错）
+await JobRunner.answerVideoQuiz(...);  container.remove();
+```
+
+选项被选中但**从未提交**，超星不记录作答；紧接着容器又被移除 → 表现为「闪一下就被跳过」。
+
+**D2 只在当前 document 查找（上游同样存在）**
+
+第三方脚本的取值路径揭示弹题可能在**嵌套 iframe** 里：
+
+```js
+document.querySelector('iframe').contentDocument
+        .querySelector('iframe').contentDocument     // 两层
+        .querySelectorAll("[name='ans-videoquiz-opt']")
+```
+
+本分支（与上游）只查当前 `document`，找不到就静默什么都不做。
+
+**D3 未作答成功也移除弹题** —— 答案丢失且用户无从察觉。
+
+### 24.3 修复
+
+| 项 | 处理 |
+|---|---|
+| 提交 | 选中选项后**必须** `submit.click()` |
+| 查找 | 深度优先收集同源子 iframe 的 document，并额外回退到顶层文档 |
+| 失败处理 | **仅在提交成功后**隐藏弹题；失败则保留并明确告警，交给人工 |
+| 去重 | 相同弹题只请求一次模型（无论成败），避免反复消耗 token |
+| 选择器 | 兼容 `.ans-videoquiz-opt label` / `input[name='ans-videoquiz-opt']`，`#videoquiz-submit` / `.ans-videoquiz-submit` |
+| 题型 | 不再硬编码单选：按选项 input 类型判定多选，判断题交给 `resolveJudgement`，单选走 `resolveSingle` |
+| 诊断 | 弹题出现时一次打出选项数、提交按钮有无、DOM 标记（input 的 value） |
+
+### 24.4 新增回归测试（26 项，已接入构建）
+
+`tests/cx-videoquiz.test.ts`，用 jsdom 构造**真实的两层嵌套 iframe**验证定位，覆盖：
+嵌套 iframe 定位、两种选择器形态、无弹题不误报、多选识别与 DOM 标记读取、
+单选/判断/多选匹配、匹配不上必须返回空数组。
+
+**该测试当场抓到两个真 bug**：`readOptionMarks` 与多选判定从 **label** 上读 `type`/`value`
+（label 没有这两个属性）→ DOM 标记恒为空、**label 形态的多选题被当成单选**。
+修法是新增 `optionInput()` 归一化到内层 input。
+
+### 24.5 顺带修掉上游已损坏的测试入口
+
+`tsx --import ./tests/setup-browser-env.ts` 在 **tsx 4.22.4 + Node 18** 下必然报
+`ERR_UNKNOWN_FILE_EXTENSION`（Node 的 ESM 加载器不认 `.ts`）——即上游 `pnpm test:answerer`
+**一直无法运行**，且 `answerer.test.ts` 的注释还在推荐这个写法。
+改用 `.cjs` 预加载 + `tsx --require`（走 CommonJS，不受此限制），
+并同步 `package.json` 的 `test:answerer` 与注释。旧 `.ts` 预加载已删除。
+
+### 24.6 新增只读探针
+
+`tools/cx_probe_videoquiz.py`：探测弹题真实 DOM，支持 `--watch` 常驻轮询
+（弹题一出现就输出结构 + 截图 + 存 JSON）。它还会提示一条**尚未采纳的线索**：
+若「恰有一个选项的 `value="true"`」，可能是超星自带在 DOM 里的正确项标记
+（2020 年的资料显示曾如此）。**在真实弹题上确认含义之前不采纳为答案来源**，
+以免系统性答错；届时可直接对照该工具的输出决定。
+
+### 24.7 验证状态（务必区分）
+
+- **已确认**：D1/D2/D3 三个缺陷的存在与修法（代码对比 + 第三方脚本取值路径）
+- **已由单测覆盖**：嵌套 iframe 定位、选择器兼容、题型判定、答案匹配
+- **未实机验证**：真实弹题上的端到端效果（弹题未出现，无法触发）
+  → 待下次出现时用 `cx_probe_videoquiz.py --watch` 验证，日志特征：
+  `[CXStudy] 检测到视频内弹题：选项 N 个，提交按钮=有，DOM 标记=[...]`
+  紧接 `[CXStudy] 视频内题目 → 已提交：...`
+
+| 项 | 值 |
+|---|---|
+| 产物 | `dist/ocs.user.js` **474,697 bytes** |
+| 测试 | resolver 164/164 · cx-model.handler 26/26 · cx-videoquiz 26/26 |
+| 补丁 | 446,333 bytes，36 文件，11 处删除，反向应用自检通过 |
+| 内层仓库 | `9813785` |
