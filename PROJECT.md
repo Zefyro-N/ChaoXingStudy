@@ -572,3 +572,73 @@ C 默认关闭 + 首次遇到时弹提示询问。
 | `tools/cx_check_script.py` | 直接问油猴扩展：已安装脚本列表（**验证「装的是不是我们的构建」最可靠**） |
 | `tools/cx_logcollect.py` | **后台控制台日志收集器**（主验证通道） |
 | `tools/cx_goto_course.py` | 按关键词找课程并进入（需用户明确授权才用） |
+
+
+## 17. 实机验证（第二轮）：M16 字体解密缺口 + 两个结论澄清
+
+### 17.1 重大发现：章节测验题干是混淆字体，而上游不解密
+
+真实控制台证据（知识论导论 `courseId=267906322` 的章节测验）：
+
+```
+[debug] 开始答题 OCSWorker
+[debug] 题目数量:  5
+[startGroup] 开始搜题:  【单选题】 應贯论懆襖保证澥（）應贯懅统
+[log] [cxstudy M2] 发送给模型的 prompt(前2000字符): [{"role":"system",...
+```
+
+- ✅ **M2 模型接入确实在工作**，系统提示词也进了请求
+- 🔴 但题干是**字形置换乱码** → 模型拿到乱码，答案必然不可靠
+
+**根因（上游缺口）**：`cx.ts` 的 `mappingRecognize()`（字体解密）只被一个 Script 调用，
+其 `matches` 只含 `work/doHomeWorkNew`、`/mooc2/exam/preview`、`/mooc2/work/dowork`
+—— **章节测验页不在其中，因此从不解密**。这正是一直推迟的 D4，而本课程确实在用。
+
+### 17.2 修复 M16 及其关键依赖验证
+
+在 `JobRunner.chapter()` 抽题之前调用 `mappingRecognize(frame.contentWindow.document)`；
+失败不阻断（降级为原行为并告警）。
+
+**依赖验证（关键，否则修复无效）**：`loadRefTable()` 用的是**原生 `fetch`**
+（`font-decrypt/ref-table.ts:54`），**不是 `GM_xmlhttpRequest`** → `@connect` 白名单对它无效，
+受的是 **CORS** 约束。实测从 `mooc1.chaoxing.com` 页面 fetch：
+
+```
+status=200  bytes=758936  magic='FRB2'  耗时=7ms
+```
+
+→ 跨域头宽松、参照表可获取，**M16 具备生效条件**。
+
+### 17.3 结论澄清一：`type: undefined` **不是 bug**（静态查清）
+
+```
+worker.ts:224        console.log('ctx', result.ctx)      ← 打印点
+cx.ts:2175           ctx.type = type                     ← 在 optionsTransform 里赋值
+work.ts:537          optionsTransform(elements, ctx)     ← 先执行
+work.ts:559-560      buildAnswererEnv({ type: ctx.type }) ← 后使用
+```
+
+打印发生在 `optionsTransform` **之前**，那一刻 `type` 自然是 undefined；
+真正消费 `ctx.type` 时已被赋值。**日志时机问题，不影响答题。**
+
+### 17.4 结论澄清二：视频并非"被反复暂停"（撤回上一轮误判）
+
+单次快照看到 `paused=True` 时我下了"被反复暂停"的结论 —— **过早**。
+30 样本 × 2 秒的连续采样显示：
+
+| 指标 | 值 |
+|---|---|
+| 视频前进 / 实际流逝 | 30.03s / 30.00s |
+| 有效速率 | **1.001x** |
+| 暂停样本占比 | **0/30 = 0%** |
+| `playbackRate` 取值集合 | `[1]` |
+
+→ 约束 #2「按真实速率」**实测成立**；瞬时暂停存在但未影响整体速率。
+
+### 17.5 工具教训
+
+- **日志过滤要用黑名单，不要用白名单**：白名单把 `[debug] 开始答题 OCSWorker`、
+  `[debug] 题目数量: 5` 这类章节测验关键日志也过滤掉了。已改为黑名单（排除已知噪声）。
+- **`file://` 导航驱动 Tampermonkey 安装不可靠**：CDP 环境下导航到本地 `.user.js` 会超时
+  （油猴未接管），通常是扩展**无权访问文件 URL**。可靠做法是「新建脚本 → 粘贴内容」，
+  或先打开「允许访问文件 URL」。因此**脚本安装由用户完成**，自动化仅作备用。

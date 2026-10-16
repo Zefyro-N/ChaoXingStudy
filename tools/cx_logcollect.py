@@ -26,10 +26,20 @@ from playwright.sync_api import sync_playwright
 CDP = "http://127.0.0.1:9222"
 ROOT = Path(r"E:\Code\ChaoXingStudy")
 
-# 只保留这些关键词的日志（其余页面噪声太多）
-KEEP = [
-    "cxstudy", "[ocsjs]", "OCS", "模型", "答案", "章节", "任务点", "测验", "作业", "考试",
-    "finishJob", "门禁", "预检", "图片", "截图", "playbackRate", "倍速", "error", "Error",
+# 噪声屏蔽表（改为黑名单：白名单会误杀关键日志）
+# 教训：曾用白名单过滤，结果把章节测验的关键日志 "[debug] 开始答题 OCSWorker"
+# 与 "[debug] 题目数量: 5" 也过滤掉了（[debug] 不在白名单里）。
+NOISE = [
+    "CxRobotSdkJs", "VoiceToonBot", "Permissions policy violation",
+    "Deprecated as of", "JQMIGRATE", "Failed to load resource", "net::ERR",
+    "CxRobotSdk", "plugin/reading",
+]
+
+# 这些词儿命中时额外标一个 *，方便快速扫读
+KEY_LOGS = [
+    "cxstudy", "[ocsjs]", "模型", "答案", "章节", "任务点", "测验", "作业", "考试",
+    "finishJob", "门禁", "预检", "图片", "截图", "playbackRate", "题目数量", "开始答题",
+    "开始搜题", "OCR", "字体",
 ]
 
 
@@ -37,7 +47,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=".logs/live.log")
     ap.add_argument("--duration", type=int, default=1800)
-    ap.add_argument("--all", action="store_true", help="不过滤关键词，记录全部")
+    ap.add_argument("--all", action="store_true", help="保留参数（已改为黑名单过滤，默认就记全部非噪声日志）")
     args = ap.parse_args()
 
     out = ROOT / args.out
@@ -70,11 +80,12 @@ def main():
         def on_console(pg, m):
             try:
                 txt = m.text
-                if not args.all and not any(k in txt for k in KEEP):
+                if any(k in txt for k in NOISE):
                     return
-                if "学生端重新登录" in txt or "CxRobotSdkJs" in txt or "VoiceToonBot" in txt:
-                    return
-                w("%s [%s] %s | %s" % (datetime.now().strftime("%H:%M:%S"), m.type, txt.replace("\n", " ")[:400], (pg.url or "")[:70]))
+                mark = "* " if any(k in txt for k in KEY_LOGS) else "  "
+                w("%s%s[%s] %s | %s" % (
+                    datetime.now().strftime("%H:%M:%S"), mark, m.type,
+                    txt.replace("\n", " ")[:400], (pg.url or "")[:70]))
             except Exception:
                 pass
 
