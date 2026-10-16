@@ -58,7 +58,7 @@ index 2c23149..892daf2 100644
  					$.sleep((AnswerWrapperHandlerConfig.timeout_seconds ?? 60) * 1000)
  				]);
 diff --git a/packages/scripts/src/projects/common.ts b/packages/scripts/src/projects/common.ts
-index aadb3d9..bec2fa7 100644
+index aadb3d9..9b62a8d 100644
 --- a/packages/scripts/src/projects/common.ts
 +++ b/packages/scripts/src/projects/common.ts
 @@ -19,6 +19,7 @@ import {
@@ -680,7 +680,38 @@ index aadb3d9..bec2fa7 100644
  				},
  				upload: {
  					label: '答案提交方式（提交率）',
-@@ -1020,8 +484,13 @@ export const CommonProject = Project.create({
+@@ -824,30 +288,6 @@ export const CommonProject = Project.create({
+ 							'当章节测试左上角并没有黄色任务点的时候依然进行答题（没有任务点说明此作业可能不计入总成绩，如果老师要求则可以开启）'
+ 					}
+ 				},
+-				'randomWork-choice': {
+-					defaultValue: false,
+-					label: '随机选择（仅超星）',
+-					attrs: { type: 'checkbox', title: '题库搜索不到答案时，随机选择任意一个选项，仅支持超星章节测试' }
+-				},
+-				'randomWork-complete': {
+-					defaultValue: false,
+-					label: '随机填空（仅超星）',
+-					attrs: { type: 'checkbox', title: '题库搜索不到答案时，随机填写以下任意一个文案，仅支持超星章节测试' }
+-				},
+-				'randomWork-completeTexts-textarea': {
+-					defaultValue: ['不会', '不知道', '不清楚', '不懂', '不会写'].join('\n'),
+-					label: '随机填空文案（仅超星）',
+-					tag: 'textarea',
+-					showIf: 'common.settings.randomWork-complete',
+-					attrs: { title: '每行一个，随机填入', style: { minWidth: '200px', minHeight: '50px' } },
+-					onload(el) {
+-						el.addEventListener('change', () => {
+-							if (String(el.value).trim() === '') {
+-								el.value = el.defaultValue;
+-							}
+-						});
+-					}
+-				},
+ 				advancedSettings: {
+ 					...dropdownStyle,
+ 					defaultValue: false,
+@@ -1020,8 +460,13 @@ export const CommonProject = Project.create({
  						/**
  						 * 过滤掉被禁用的题库
  						 */
@@ -697,10 +728,21 @@ index aadb3d9..bec2fa7 100644
  
  						return workOptions;
 diff --git a/packages/scripts/src/projects/cx.ts b/packages/scripts/src/projects/cx.ts
-index da82b2b..1991fe7 100644
+index da82b2b..787ca40 100644
 --- a/packages/scripts/src/projects/cx.ts
 +++ b/packages/scripts/src/projects/cx.ts
-@@ -16,6 +16,7 @@ import { $modal, h, $store, MessageElement, Project, Script, $el, $gm, $$el, $ui
+@@ -9,13 +9,17 @@ import {
+ 	splitAnswer,
+ 	domSearch,
+ 	domSearchAll,
+-	SearchInformation
++	SearchInformation,
++	/* [cxstudy M5] 视频内弹题复用上游答题器管道与匹配算法 */
++	defaultAnswerWrapperHandler,
++	resolveSingle
+ } from '@ocsjs/core';
+ import { crackFont, collectChars, decryptElements, extractFontFromStyle } from '../utils/font-decrypt';
+ import { $modal, h, $store, MessageElement, Project, Script, $el, $gm, $$el, $ui, cors, $message } from 'easy-us';
  
  import { CommonEvents, CommonProject } from './common';
  import { workNotes, volume, playbackRate, dropdownStyle } from '../utils/configs';
@@ -708,7 +750,27 @@ index da82b2b..1991fe7 100644
  import {
  	answerWrapperEmptyWarning,
  	commonWork,
-@@ -224,7 +225,20 @@ export const CXProject = Project.create({
+@@ -23,7 +27,9 @@ import {
+ 	extractTextWithImages,
+ 	removeRedundantWords,
+ 	simplifyWorkResult,
+-	updateDynamicResult
++	updateDynamicResult,
++	/* [cxstudy M5] 组装答题器上下文 */
++	buildAnswererEnv
+ } from '../utils/work';
+ import { $console, BackgroundProject } from './background';
+ import { CommonWorkOptions, playMedia } from '../utils';
+@@ -65,7 +71,7 @@ const state = {
+ 	}
+ };
+ 
+-type VideoQuizStrategy = 'random' | 'ignore';
++type VideoQuizStrategy = 'ai' | 'ignore';
+ 
+ type Attachment = {
+ 	/** 只有当 module 为 音视频（并且已经播放完成）时才会有这个属性 */
+@@ -224,20 +230,44 @@ export const CXProject = Project.create({
  						['⚠️目前超星倍速风控严重，如果高倍速', '被平台清空进度，请调到1-2倍速学习！']
  					]).outerHTML
  				},
@@ -728,9 +790,36 @@ index da82b2b..1991fe7 100644
 +					// 若写成字面量对象会让 cfg.playbackRate 收窄为 string，破坏 study() 的 number 形参
 +				} as any,
  				volume: volume,
++				// [cxstudy M11] 防止失焦/鼠标移出导致暂停（可在面板关闭）
++				cxKeepPlaying: {
++					label: '防止失焦暂停（鼠标移出/切窗口不暂停）',
++					attrs: {
++						type: 'checkbox',
++						title:
++							'开启后：改写页面可见性状态（hidden/visibilityState/hasFocus）并在播放器上周期性派发合成 mousemove，使鼠标移出播放器或切换窗口时视频不暂停。\n注意：超星教师端可开启“防窗口切换”，本项属于对该设置的对抗行为，可能被学习记录观察到。\n实现上不拦截 blur/visibilitychange/pagehide 事件本身 —— 超星依赖这些事件触发学习记录上报，拦掉可能丢进度。\n关闭本项后需刷新页面才完全生效（属性改写不可逆）。'
++					},
++					defaultValue: true
++				},
  				videoQuizStrategy: {
  					label: '视频内题目',
-@@ -352,7 +366,13 @@ export const CXProject = Project.create({
+ 					tag: 'select',
+ 					options: [
+-						['random', '随机答题'],
++						// [cxstudy M5] 上游默认是“随机答题”，本项目改为走模型
++						['ai', '模型作答'],
+ 						['ignore', '忽略']
+ 					],
+ 					attrs: {
+ 						title:
+-							'视频有时在学习过程中会弹出题目，这个好像并不计算在分数内，所以可以忽略，视频可以正常观看，这里提供几个方法处理题目'
++							'视频有时会在学习过程中弹出题目。本分支已禁用“随机作答”，改为交给模型作答（需在通用-全局设置里配置模型 API Key），选“忽略”则不动弹题。'
+ 					},
+-					defaultValue: 'random' as VideoQuizStrategy
++					defaultValue: 'ai' as VideoQuizStrategy
+ 				},
+ 				mode: {
+ 					label: '跳转模式',
+@@ -352,7 +382,13 @@ export const CXProject = Project.create({
  				}
  			},
  			onrender({ panel }) {
@@ -745,7 +834,7 @@ index da82b2b..1991fe7 100644
  					answerWrapperEmptyWarning(10);
  				}
  
-@@ -429,7 +449,7 @@ export const CXProject = Project.create({
+@@ -429,7 +465,7 @@ export const CXProject = Project.create({
  						// @ts-ignore
  						if (top.currentMedia) {
  							// @ts-ignore 倍速设置
@@ -754,7 +843,7 @@ index da82b2b..1991fe7 100644
  							// @ts-ignore 音量设置
  							top.currentMedia.volume = this.cfg.volume;
  						}
-@@ -440,7 +460,7 @@ export const CXProject = Project.create({
+@@ -440,7 +476,7 @@ export const CXProject = Project.create({
  
  					await study({
  						...this.cfg,
@@ -763,7 +852,7 @@ index da82b2b..1991fe7 100644
  					});
  				}
  			}
-@@ -460,6 +480,12 @@ export const CXProject = Project.create({
+@@ -460,6 +496,12 @@ export const CXProject = Project.create({
  				}
  
  				const isExam = /\/exam\/preview/.test(location.href);
@@ -776,7 +865,7 @@ index da82b2b..1991fe7 100644
  				commonWork({
  					mount_script: this,
  					workerProvider: (opts) => workOrExam(isExam ? 'exam' : 'work', { ...opts, preview_mode: true })
-@@ -647,6 +673,12 @@ export const CXProject = Project.create({
+@@ -647,6 +689,12 @@ export const CXProject = Project.create({
  						duration: 0
  					});
  					const isExam = /\/exam\/test/.test(location.href);
@@ -789,7 +878,7 @@ index da82b2b..1991fe7 100644
  					const workOptions = CommonProject.scripts.settings.methods.getWorkOptions();
  					BackgroundProject.scripts.render.methods.pin(this);
  					commonWork({
-@@ -664,15 +696,18 @@ export const CXProject = Project.create({
+@@ -664,15 +712,18 @@ export const CXProject = Project.create({
  		rateHack: new Script({
  			name: '屏蔽倍速限制',
  			hideInPanel: true,
@@ -811,7 +900,199 @@ index da82b2b..1991fe7 100644
  			methods() {
  				return {
  					/** 解除输入框无法复制粘贴 */
-@@ -1905,7 +1940,9 @@ const JobRunner = {
+@@ -1685,7 +1736,9 @@ function searchJob(opts: typeof CXProject.scripts.study.cfg, searchedJobs: Job[]
+ 									}播放 : ` + jobName;
+ 								$message.info({ content: msg });
+ 								$console.log(msg);
+-								return JobRunner.media(opts, win.document);
++								// [cxstudy M5] 传入模型答题器，供视频内弹题使用
++								const workOptions = CommonProject.scripts.settings.methods.getWorkOptions();
++								return JobRunner.media(opts, win.document, workOptions.answererWrappers);
+ 							};
+ 						}
+ 					}
+@@ -1804,7 +1857,119 @@ export function fixedVideoProgress() {
+ /**
+  * 任务点运行器
+  */
++/**
++ * [cxstudy M11] 防止“鼠标移出播放器 / 窗口失焦”导致视频暂停。
++ *
++ * 背景：超星教师端可开启「防窗口切换」（见超星教师使用手册），学生切换窗口或鼠标移出
++ * 播放器区域时视频会暂停。
++ *
++ * 实现策略（尽量不破坏页面自身逻辑）：
++ *   1. 改写可见性属性：hidden / visibilityState / webkitHidden / webkitVisibilityState / hasFocus，
++ *      使“先查状态再暂停”的逻辑查不到失焦。同时作用于 top 文档与播放器所在 iframe。
++ *   2. **不拦截** blur / visibilitychange / pagehide 事件本身 —— 超星依赖这些事件
++ *      触发学习记录上报，拦掉可能丢进度（这是本项目刻意避开的风险）。
++ *   3. 周期性在播放器上派发合成 mousemove，满足“鼠标必须在播放器内”的检测。
++ *   4. 兼底：上游已有的 pause -> play 重播逻辑仍继续生效。
++ */
++let keepPlayingTimer: any = null;
++function installKeepPlaying(playerDoc: Document) {
++	const docs: Document[] = [];
++	try {
++		const topDoc = ($gm.unsafeWindow as any).top?.document as Document;
++		if (topDoc) docs.push(topDoc);
++	} catch (e) {
++		/* 跳域，忽略 */
++	}
++	if (docs.indexOf(document) < 0) docs.push(document);
++	if (docs.indexOf(playerDoc) < 0) docs.push(playerDoc);
++
++	for (const d of docs) {
++		try {
++			Object.defineProperty(d, 'hidden', { configurable: true, get: () => false });
++			Object.defineProperty(d, 'visibilityState', { configurable: true, get: () => 'visible' });
++			Object.defineProperty(d, 'webkitHidden', { configurable: true, get: () => false });
++			Object.defineProperty(d, 'webkitVisibilityState', { configurable: true, get: () => 'visible' });
++			(d as any).hasFocus = () => true;
++		} catch (e) {
++			/* 个别属性不可配置时忽略 */
++		}
++	}
++	$console.log('[cxstudy M11] 已开启防失焦暂停（已改写可见性状态，未拦截上报事件）。');
++
++	if (keepPlayingTimer) return;
++	keepPlayingTimer = setInterval(() => {
++		try {
++			const v = playerDoc.querySelector<HTMLElement>('#video,#audio') || playerDoc.querySelector<HTMLElement>('video,audio');
++			if (!v) return;
++			const r = v.getBoundingClientRect();
++			const ev = new MouseEvent('mousemove', {
++				bubbles: true,
++				cancelable: true,
++				clientX: Math.round(r.left + r.width / 2),
++				clientY: Math.round(r.top + r.height / 2)
++			});
++			v.dispatchEvent(ev);
++			playerDoc.dispatchEvent(ev);
++		} catch (e) {
++			/* 忽略 */
++		}
++	}, 5000);
++}
++
++/** [cxstudy M5] 已作答过的视频内题目标识，避免同一弹题被重复送模型（省 token） */
++const answeredVideoQuizzes = new Set<string>();
+ const JobRunner = {
++	/**
++	 * [cxstudy M5] 视频内弹题：走模型作答。
++	 *
++	 * 复用上游的通用答题器管道（buildAnswererEnv + defaultAnswerWrapperHandler）
++	 * 与上游的单选匹配算法 resolveSingle，不自己写匹配逻辑。
++	 */
++	async answerVideoQuiz(doc: Document, answererWrappers?: any[]) {
++		const labels = Array.from(doc.querySelectorAll<HTMLElement>('.ans-videoquiz-opt label'));
++		const optionTexts = labels.map((l) => (l.innerText || '').trim()).filter(Boolean);
++		if (!optionTexts.length) return;
++
++		if (!answererWrappers || !answererWrappers.length) {
++			$console.warn('[cxstudy M5] 视频内题目：未配置模型答题器 → 忽略本题（不做随机作答）。');
++			return;
++		}
++
++		// 题干：取容器全文并剔除选项文本，避免把选项混进题干
++		const container = doc.querySelector<HTMLElement>('#video .ans-videoquiz');
++		let title = (container?.innerText || '').trim();
++		for (const t of optionTexts) title = title.split(t).join(' ');
++		title = title.replace(/\s+/g, ' ').trim() || '视频内题目';
++
++		// [cxstudy M5] 去重：同一道弹题不重复请求模型
++		if (answeredVideoQuizzes.has(title)) {
++			$console.log('[cxstudy M5] 视频内题目已作答过，跳过重复请求：' + title.slice(0, 60));
++			return;
++		}
++
++		$console.log('[cxstudy M5] 视频内题目，走模型作答：' + title.slice(0, 80));
++		try {
++			const { env } = await buildAnswererEnv({ type: 'single', title, options: optionTexts.join('\n') });
++			const infos = await defaultAnswerWrapperHandler(answererWrappers, env);
++			const answers = infos.flatMap((i) => i.results.map((r) => r.answer)).filter(Boolean) as string[];
++			if (!answers.length) {
++				$console.warn('[cxstudy M5] 视频内题目：模型未返回答案 → 忽略本题。');
++				return;
++			}
++			const res = resolveSingle(answers, optionTexts);
++			if (!res.finish || !res.option) {
++				$console.warn('[cxstudy M5] 视频内题目：答案无法匹配到选项 → 忽略本题。');
++				return;
++			}
++			const idx = optionTexts.indexOf(res.option);
++			const target = idx >= 0 ? labels[idx] : labels.find((l) => (l.innerText || '').trim() === res.option);
++			target?.click();
++			if (target) answeredVideoQuizzes.add(title);
++			$console.log('[cxstudy M5] 视频内题目 → ' + res.option);
++		} catch (e) {
++			$console.warn('[cxstudy M5] 视频内题目作答失败：' + (e as any)?.message);
++		}
++	},
+ 	/**
+ 	 * 播放视频和音频
+ 	 */
+@@ -1814,7 +1979,9 @@ const JobRunner = {
+ 			volume: number;
+ 			videoQuizStrategy: VideoQuizStrategy;
+ 		},
+-		doc: Document
++		doc: Document,
++		/** [cxstudy M5] 模型答题器，用于视频内弹题；未传时忽略弹题 */
++		answererWrappers?: any[]
+ 	) {
+ 		const { playbackRate = 1, volume = 0 } = setting;
+ 
+@@ -1835,30 +2002,31 @@ const JobRunner = {
+ 		// 固定视频进度
+ 		fixedVideoProgress();
+ 
+-		// 随机作答视频内题目
+-		if (setting.videoQuizStrategy === 'random') {
++		// [cxstudy M11] 防止失焦/鼠标移出导致暂停（可在面板关闭）
++		if ((CXProject.scripts.study.cfg as any).cxKeepPlaying) {
++			installKeepPlaying(doc);
++		}
++
++		// [cxstudy M5] 视频内题目：走模型作答（上游是随机作答，本项目禁止随机；且上游的循环无终止条件，这里补上）
++		if (setting.videoQuizStrategy === 'ai') {
+ 			const loop = async () => {
+-				const submitBtn = () => doc.querySelector<HTMLElement>('#videoquiz-submit');
+-				if (submitBtn()) {
+-					const list = Array.from(doc.querySelectorAll<HTMLElement>('.ans-videoquiz-opt label'));
+-					const answer = list[Math.floor(Math.random() * list.length)];
+-					answer?.click();
+-					submitBtn()?.click();
+-					await $.sleep(3000);
+-					// 隐藏视频内题目元素
+-					const container = doc.querySelector<HTMLElement>('#video .ans-videoquiz');
+-					const components = Array.from(doc.querySelectorAll<HTMLElement>('.x-component-default'));
+-					if (container) {
+-						container.remove();
+-					}
+-					if (components.length) {
++				while (!media.ended) {
++					const submitBtn = doc.querySelector<HTMLElement>('#videoquiz-submit');
++					if (submitBtn) {
++						await JobRunner.answerVideoQuiz(doc, answererWrappers);
++						await $.sleep(3000);
++						// 隐藏视频内题目元素
++						const container = doc.querySelector<HTMLElement>('#video .ans-videoquiz');
++						const components = Array.from(doc.querySelectorAll<HTMLElement>('.x-component-default'));
++						if (container) {
++							container.remove();
++						}
+ 						for (const com of components) {
+ 							com.style.display = 'none';
+ 						}
+ 					}
++					await $.sleep(3000);
+ 				}
+-				await $.sleep(3000);
+-				await loop();
+ 			};
+ 			loop();
+ 		}
+@@ -1905,7 +2073,9 @@ const JobRunner = {
  			media.volume = volume;
  
  			// 重置视频进度
@@ -822,7 +1103,7 @@ index da82b2b..1991fe7 100644
  
  			// 使用 setTimeout 解决 The play() request was interrupted by a call to pause() 问题
  			setTimeout(() => {
-@@ -1922,7 +1959,11 @@ const JobRunner = {
+@@ -1922,7 +2092,11 @@ const JobRunner = {
  	 */
  	async read(win: Window & { finishJob?: Function }) {
  		const finishJob = win.finishJob;
@@ -835,7 +1116,59 @@ index da82b2b..1991fe7 100644
  		await $.sleep(3000);
  	},
  	/**
-@@ -2232,6 +2273,26 @@ const JobRunner = {
+@@ -2131,48 +2305,12 @@ const JobRunner = {
+ 					simplifyWorkResult(curr, chapterTestTaskQuestionTitleText, index)
+ 				);
+ 
+-				// 没有完成时随机作答
++				// [cxstudy M6] 上游此处会在答不出时“随机选择/随机填空”。
++				// 本项目是自动提交场景，随机等于把确定性的错答写进真实成绩，因此改为放弃该题。
+ 				if (curr.result?.finish === false && curr.resolved === true) {
+-					const options = curr.ctx?.elements?.options || [];
+-
+ 					const typeInput = curr.ctx?.elements?.type[0] as HTMLInputElement | undefined;
+ 					const type = typeInput ? getQuestionType(parseInt(typeInput.value)) : undefined;
+-
+-					const commonSetting = CommonProject.scripts.settings.cfg;
+-
+-					if (
+-						commonSetting['randomWork-choice'] &&
+-						(type === 'judgement' || type === 'single' || type === 'multiple')
+-					) {
+-						$console.log('正在随机作答');
+-
+-						const option = options[Math.floor(Math.random() * options.length)];
+-						// @ts-ignore 随机选择选项
+-						option?.parentElement?.querySelector('a,label')?.click();
+-					} else if (commonSetting['randomWork-complete'] && type === 'completion') {
+-						$console.log('正在随机作答');
+-
+-						// 随机填写答案
+-						for (const option of options) {
+-							const textarea = option?.parentElement?.querySelector('textarea');
+-							const completeTexts = commonSetting['randomWork-completeTexts-textarea'].split('\n').filter(Boolean);
+-							const text = completeTexts[Math.floor(Math.random() * completeTexts.length)];
+-							const textareaFrame = option?.parentElement?.querySelector('iframe');
+-
+-							if (text) {
+-								if (textarea) {
+-									textarea.value = text;
+-								}
+-								if (textareaFrame?.contentDocument) {
+-									textareaFrame.contentDocument.body.innerHTML = text;
+-								}
+-							} else {
+-								$console.error('请设置随机填空的文案');
+-							}
+-
+-							await $.sleep(500);
+-						}
+-					}
++					$console.warn('[cxstudy M6] 本题未得到答案（type=' + type + '）→ 放弃该题，不做随机作答。');
+ 				}
+ 			},
+ 			async onElementSearched(elements) {
+@@ -2232,6 +2370,26 @@ const JobRunner = {
  					// @ts-ignore 提交
  					frameWindow.btnBlueSubmit();
  
@@ -862,7 +1195,7 @@ index da82b2b..1991fe7 100644
  					await $.sleep(3000);
  					/** 确定按钮 */
  					// @ts-ignore 确定
-@@ -2351,6 +2412,56 @@ async function readerAndFillHandle(searchInfos: SearchInformation[], list: HTMLE
+@@ -2351,6 +2509,56 @@ async function readerAndFillHandle(searchInfos: SearchInformation[], list: HTMLE
  	return { finish: false };
  }
  

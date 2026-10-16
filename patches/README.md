@@ -11,7 +11,7 @@
 | 许可证 | MIT（保留上游署名，见产物头部 `@author enncy`） |
 | 补丁文件 | `ocsjs-cxstudy.patch` |
 | 改动范围 | 6 个文件（含 1 个新增） |
-| 产物 | `dist/ocs.user.js`（899,655 bytes，`@version 5.2.1-cxstudy.1`） |
+| 产物 | `dist/ocs.user.js`（899,023 bytes，`@version 5.2.1-cxstudy.1`） |
 
 ## 改动的文件
 
@@ -65,7 +65,58 @@ node_modules\.bin\gulp.cmd -f .\scripts\build-core.js
 `utils/ui.ts` 侧用 `if (provider?.openAnswererModal)` 守卫，不会抛错。
 
 **尚未精简**：上游其余 5 个平台（`zhs` / `yuketang` / `icve` / `zjy` / `icourse`）的源码仍在打包产物里，
-它们与超星无关。删它们需要动 `index.ts` 注册与 `common.ts` 的跨项目引用，风险高于收益，待后续评估。
+删它们需要动 `index.ts` 注册与 `common.ts` 的跳项目引用，体积只省几十 KB。
+**已决定不做**：反复删改会降低可维护性，故保留上游这 5 个平台。
+
+## M5 视频内弹题走模型（实现说明）
+
+上游在 `JobRunner.media` 里用 `videoQuizStrategy: 'random'`，直接**随机点一个选项**再提交。
+本项目改为复用上游自己的答题器管道，**不自己写匹配逻辑**：
+
+```
+.ans-videoquiz-opt label      取选项列表
+#video .ans-videoquiz         取容器 innerText，剔除选项文本后作为题干
+buildAnswererEnv({type:'single', title, options})   组装上下文
+-> defaultAnswerWrapperHandler(wrappers, env)        调模型
+-> resolveSingle(answers, optionTexts)               用上游的单选匹配算法定选项
+-> 点击对应 label
+```
+
+三个细节：
+
+1. **去重**：`answeredVideoQuizzes` 记录已作答过的题干，同一道弹题不重复请求模型（省 token）。
+2. **循环终止**：上游的 `loop()` 递归**没有终止条件**（只能靠页面跳转结束），这里改为 `while (!media.ended)`。
+3. **降级**：未配置模型答题器时**直接忽略**该弹题，不退回随机。
+
+## M11 防止“鼠标移出/切窗口导致视频暂停”
+
+**背景**：超星教师端可开启「防窗口切换」（见超星教师使用手册：“勾选后，学生在播放时不能切换窗口，
+否则视频暂停”）。用户反馈鼠标离开界面视频就暂停，影响挂机体验。
+
+**做法（尽量不破坏页面自身逻辑）**：
+
+1. **改写可见性属性**：`hidden` / `visibilityState` / `webkitHidden` / `webkitVisibilityState` /
+   `hasFocus`，使“先查状态再暂停”的逻辑查不到失焦。同时作用于 top 文档与播放器所在 iframe。
+2. **不拦截** `blur` / `visibilitychange` / `pagehide` **事件本身**。
+   这是刻意避开的坑：**超星依赖这些事件触发学习记录上报，拦掉可能丢进度**。
+3. **周期性派发合成 `mousemove`**（5s 一次，打在播放器中心）满足“鼠标必须在播放器内”的检测。
+4. 兼底：上游已有的 `pause → play` 重播逻辑继续生效。
+
+**面板开关**：`cxKeepPlaying`（默认**开**）。
+关闭后需**刷新页面**才完全生效，因为属性改写不可逆。
+
+**风险如实标注**（已写进面板 tooltip）：本项属于对教师显式设置的对抗行为，
+可能被学习记录观察到。若平台侧记录“窗口失焦但视频继续播放”，这就是特征来源。
+
+## M6 去掉随机兜底
+
+上游在 `onResultsUpdate` 里对“答不出的题”做 `randomWork-choice`（随机选项）/
+`randomWork-complete`（随机填空）。本项目是自动提交场景，随机等于把确定性的错答写进真实成绩，
+因此改为**放弃该题并告警**：
+`[cxstudy M6] 本题未得到答案（type=…）→ 放弃该题，不做随机作答。`
+
+同时删除了面板上已无引用的 3 个死配置项（`randomWork-choice` / `randomWork-complete` /
+`randomWork-completeTexts-textarea`，共 24 行），避免留一堆不起作用的开关。
 
 ## 模型接入怎么用（M2 落地后的实际操作）
 
@@ -122,8 +173,9 @@ node_modules\.bin\gulp.cmd -f .\scripts\build-core.js
 | M8 | 不重置播放进度（断点续播） | ✅ |
 | M9 | 禁用 `finishJob()` 秒过图片阅读 | ✅ **行为变更，风险最高，必须实机验证** |
 | M10 | 考试硬禁区（不做题、不提交） | ✅ |
-| **M5** | 视频内题目：随机 → 模型作答 | ⬜ **未做**（需把 `answererWrappers` 接入 `JobRunner.media`） |
-| **M6** | 答不出时不再随机，改为放弃 | ⬜ **未做** |
+| **M11** | 防失焦暂停（鼠标移出/切窗口不暂停） | ✅ 已完成 |
+| **M5** | 视频内题目：随机 → **模型作答** | ✅ 已完成 |
+| **M6** | 答不出时不再随机，改为**放弃** | ✅ 已完成 |
 
 ## 必须知道的注意事项
 
