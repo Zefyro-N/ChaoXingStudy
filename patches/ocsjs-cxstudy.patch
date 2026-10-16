@@ -1348,10 +1348,10 @@ index da82b2b..807a2e7 100644
  	const faces = $$el<HTMLImageElement>('#fcqrimg', top?.document);
 diff --git a/packages/scripts/src/utils/cx-model.ts b/packages/scripts/src/utils/cx-model.ts
 new file mode 100644
-index 0000000..56979b5
+index 0000000..c42c2de
 --- /dev/null
 +++ b/packages/scripts/src/utils/cx-model.ts
-@@ -0,0 +1,204 @@
+@@ -0,0 +1,219 @@
 +/**
 + * [cxstudy M2/M12] 本项目锁定的模型答题器。
 + *
@@ -1413,12 +1413,12 @@ index 0000000..56979b5
 +	'你是一个只负责给出答案的答题助手，服务对象是参加在线课程测验的学生。',
 +	'严格遵守以下规则：',
 +	'1. 只输出最终答案本身，不要输出解释、推理过程、题号、引号或其他任何前后缀。',
-+	'2. 单选题：输出正确选项的完整文字。',
-+	'3. 多选题：输出所有正确选项的完整文字，用英文逗号分隔，不要输出字母。',
++	'2. 单选题：输出正确选项的完整文字。若正确选项本身就是图片（选项写成 [图片N]），则改为输出该选项的图片标记，例如 [图片2]。',
++	'3. 多选题：输出所有正确选项的完整文字，用英文逗号分隔；若选项是图片，则输出对应的图片标记，例如 [图片2],[图片4]。',
 +	'4. 判断题：只输出「正确」或「错误」两个词中的一个。',
 +	'5. 填空题：只输出答案文本。',
 +	'6. 不确定时给出你认为最可能的一个答案，不要提问、不要要求补充信息、不要拒绝作答。',
-+	'7. 题干或选项附带图片时，图片会用 [图片N] 标注位置并按顺序附在消息末尾，请结合图片内容作答。'
++	'7. 题干或选项中的图片会写成 [图片N] 占位符，图片按 N 的顺序（[图片1]、[图片2]…）附在消息末尾，编号与占位符一一对应，请结合图片内容作答。'
 +].join('\n');
 +
 +/**
@@ -1435,10 +1435,16 @@ index 0000000..56979b5
 +	return `return function (env) {
 +	var DEBUG = ${debug ? 'true' : 'false'};
 +	var VISION = ${vision ? 'true' : 'false'};
++	try {
 +	var kindMap = { single: '单选题', multiple: '多选题', judgement: '判断题', completion: '填空题', line: '连线题', fill: '选词填空题', reader: '阅读理解题' };
 +	var kind = kindMap[env.type] || '题目';
 +	var letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-+	var images = (VISION && env.images && env.images.length) ? env.images : [];
++	var images = (VISION && env.images && env.images.length) ? env.images.slice() : [];
++	// [cxstudy M19] M13 生成的整图截图此前只写进 env.screenshot，从未随请求发出（等于白截），
++	// 且这里原本引用了一个并不存在的变量 shot（见下方说明），图片题会直接抛 ReferenceError。
++	// 现改为：把截图作为最后一张图附上，并用 env.screenshot 真实判断。
++	var hasShot = !!(VISION && env.screenshot);
++	if (hasShot) { images = images.concat([env.screenshot]); }
 +	// 有图片时优先用带 [图片N] 占位符的文本，模型才知道图片对应题干还是某个选项
 +	var rawTitle = (images.length && env.suggestion_title) ? env.suggestion_title : (env.title || '');
 +	var rawOptions = (images.length && env.suggestion_options) ? env.suggestion_options : (env.options || '');
@@ -1451,7 +1457,7 @@ index 0000000..56979b5
 +		? '题干：' + rawTitle + '\\n选项：\\n' + lines.map(function (t, i) { return letters.charAt(i) + '. ' + t; }).join('\\n')
 +		: '题干：' + rawTitle;
 +	if (images.length) {
-+		body += '\\n\\n本题附带 ' + images.length + ' 张图片' + (shot ? '（最后一张是题目区域的整图截图）' : '（按 [图片N] 顺序附后）') + '。';
++		body += '\\n\\n本题附带 ' + images.length + ' 张图片' + (hasShot ? '（其中没有对应 [图片N] 的最后一张，是题目区域的整图截图，仅供参考）' : '（按 [图片N] 顺序附后）') + '。';
 +	}
 +	var userText = '题型：' + kind + '\\n' + body + '\\n\\n答案：';
 +	var content;
@@ -1472,6 +1478,15 @@ index 0000000..56979b5
 +		console.log('[cxstudy M2] 发送给模型的 prompt(前2000字符):', JSON.stringify(msgs).slice(0, 2000));
 +	}
 +	return msgs;
++	} catch (e) {
++		// [cxstudy M19] 防御：构造 prompt 时的任何异常都不应让整道题直接失败。
++		// 降级为纯文本 prompt（文字题仍可作答），并留下可排查的日志。
++		console.warn('[cxstudy M19] 构造 prompt 失败，已降级为纯文本: ' + (e && e.message ? e.message : e));
++		return [
++			{ role: 'system', content: ${JSON.stringify(SYSTEM_PROMPT)} },
++			{ role: 'user', content: '题型：题目\\n题干：' + String(env.title || '') + '\\n\\n答案：' }
++		];
++	}
 +};`;
 +}
 +
@@ -2149,10 +2164,20 @@ index fce71af..4379a54 100644
  			// 将 AI 答案中的 [图片N] 占位符还原为对应图片 URL，使选项匹配可以命中图片选项。
  			// imageUrls 与实际上传的 env.images 严格同序（createImageSuggestion 单一数据源，含转换失败过滤）。
 diff --git a/scripts/build-core.js b/scripts/build-core.js
-index 2d2f0e9..63562bd 100644
+index 2d2f0e9..06c340c 100644
 --- a/scripts/build-core.js
 +++ b/scripts/build-core.js
-@@ -49,17 +49,18 @@ async function createUserJs() {
+@@ -24,6 +24,9 @@ function cleanOutput() {
+ 
+ async function testResolver() {
+ 	await execOut('tsx ../tests/resolver.test.ts');
++	// [cxstudy M19] handler 是以字符串形式存在的运行期源码（由 Function() 求值），
++	// tsc 查不出其中的引用错误，必须在构建前真实求值并调用一遍。
++	await execOut('tsx ../tests/cx-model.handler.test.ts');
+ }
+ 
+ async function buildPackages() {
+@@ -49,17 +52,18 @@ async function createUserJs() {
  	const ocs = require(path.join(distPath, 'index.js'));
  
  	/** @return {import('../packages/utils').CreateOptions} */
@@ -2173,7 +2198,7 @@ index 2d2f0e9..63562bd 100644
  					.flat()
  			)
  		);
-@@ -92,7 +93,12 @@ async function createUserJs() {
+@@ -92,7 +96,12 @@ async function createUserJs() {
  				icon: 'https://cdn.ocsjs.com/logo.png',
  				connect: ['enncy.cn', 'icodef.com', 'ocsjs.com', 'zaizhexue.top', 'localhost', '127.0.0.1',
  					// 智慧树阿里云资源，应用： 图片题资源访问
@@ -2187,3 +2212,190 @@ index 2d2f0e9..63562bd 100644
  				match: matchMetadata,
  				grant: [
  					'GM_info',
+diff --git a/tests/cx-model.handler.test.ts b/tests/cx-model.handler.test.ts
+new file mode 100644
+index 0000000..d623f95
+--- /dev/null
++++ b/tests/cx-model.handler.test.ts
+@@ -0,0 +1,181 @@
++/**
++ * [cxstudy M19] 模型 prompt 构造器测试
++ *
++ * pnpm test                                         运行全部
++ * pnpm exec tsx tests/cx-model.handler.test.ts      只跑本文件
++ *
++ * 背景：`buildModelAnswererWrappers` 产出的 `data.messages.handler` 是一段**字符串源码**，
++ * 运行期由 OCS 以 `Function(源码)()` 求值成函数再调用。这意味着：
++ *   1. 语法/引用错误在 tsc 阶段**查不出来**（它只是一段字符串）；
++ *   2. 只有真正把这段字符串求值并调用，才能发现问题。
++ *
++ * 本文件就是干这件事：把 handler 求值后，用各种 env 真实调用一遍。
++ * 回归的正是下面这个真实事故：
++ *   handler 里写了 `(shot ? A : B)`，而 `shot` 是 `work.ts` 里的局部变量，
++ *   在 handler 作用域内并不存在。于是「图片题」一旦进入该分支就抛
++ *   ReferenceError: shot is not defined —— 整道题彻底答不了。
++ *   纯文字题因为 `images.length === 0` 走不到那一行，所以长期没有暴露。
++ */
++
++import { buildModelAnswererWrappers } from '../packages/scripts/src/utils/cx-model';
++
++let pass = 0;
++const failures: string[] = [];
++
++function ok(name: string, cond: boolean, detail?: string) {
++	if (cond) {
++		pass++;
++		console.log('  ✅ ' + name);
++	} else {
++		failures.push(name + (detail ? ' —— ' + detail : ''));
++		console.log('  ❌ ' + name + (detail ? ' —— ' + detail : ''));
++	}
++}
++
++/** 与 OCS 运行期一致的求值方式 */
++function makeHandler(debug: boolean, vision: boolean): (env: any) => any {
++	const wrappers = buildModelAnswererWrappers('opencode-go', 'fake-key-for-test', debug, vision);
++	if (!wrappers.length) throw new Error('未产出答题器（apiKey 为空？）');
++	const src = (wrappers[0] as any).data.messages.handler as string;
++	if (typeof src !== 'string' || !src.includes('function')) throw new Error('handler 不是源码字符串');
++	return new Function(src)();
++}
++
++/** 调用 handler 并把抛出的异常收成可断言的结果 */
++function call(handler: (env: any) => any, env: any): { ok: boolean; out?: any; err?: string } {
++	try {
++		return { ok: true, out: handler(env) };
++	} catch (e: any) {
++		return { ok: false, err: String((e && e.message) || e) };
++	}
++}
++
++const DATA_URL_A = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==';
++const DATA_URL_B = 'data:image/png;base64,iVBORw0KGgoBBBANSUhEUg==';
++const DATA_URL_C = 'data:image/png;base64,iVBORw0KGgoCCCANSUhEUg==';
++
++console.log('\n=== ① 纯文字题（此前唯一被走到的路径） ===');
++{
++	const h = makeHandler(false, true);
++	const r = call(h, {
++		type: 'single',
++		title: '内在主义是关于（）的理论。',
++		options: 'A. 信念\nB. 真理\nC. 观念\nD. 逻辑',
++		images: []
++	});
++	ok('不抛异常', r.ok, r.err);
++	const msgs = r.out || [];
++	const user = msgs[1] && msgs[1].content;
++	ok('user.content 是纯字符串（无图片时不发多模态块）', typeof user === 'string', typeof user);
++	ok('含题干', typeof user === 'string' && user.includes('内在主义'));
++	ok('含带标号选项 A.', typeof user === 'string' && user.includes('A. 信念'));
++}
++
++console.log('\n=== ② 图片题：题干与选项都是图片（D1 崩溃的复现场景） ===');
++{
++	const h = makeHandler(false, true);
++	const r = call(h, {
++		type: 'single',
++		title: DATA_URL_A,
++		options: ' ' + DATA_URL_B + ' \n ' + DATA_URL_C + ' ',
++		images: [DATA_URL_A, DATA_URL_B, DATA_URL_C],
++		// 上游 answerer-env 在有图片时给出的占位符版文本
++		suggestion_title: '[图片1]',
++		suggestion_options: '[图片2]\n[图片3]'
++	});
++	ok('★ 不抛异常（这正是 shot is not defined 的复现点）', r.ok, r.err);
++	const msgs = r.out || [];
++	const user = msgs[1] && msgs[1].content;
++	ok('user.content 是多模态块数组', Array.isArray(user), typeof user);
++	if (Array.isArray(user)) {
++		const imgs = user.filter((c: any) => c.type === 'image_url');
++		ok('图片块数与 env.images 一致（3）', imgs.length === 3, String(imgs.length));
++		ok('text 块在最前', user[0] && user[0].type === 'text');
++		const txt = (user[0] && user[0].text) || '';
++		ok('题干用了 [图片N] 占位符而非原始 URL', txt.includes('[图片1]'), txt.slice(0, 80));
++		ok('选项用了 [图片N] 占位符', txt.includes('[图片2]') && txt.includes('[图片3]'));
++		ok('未把原始 URL 混进正文', !txt.includes('data:image'), txt.slice(0, 80));
++		ok('说明图片按序附后', txt.includes('按 [图片N] 顺序附后'));
++	}
++}
++
++console.log('\n=== ③ 截图兜底：env.screenshot 必须真的发出去（D2） ===');
++{
++	const h = makeHandler(false, true);
++	const r = call(h, {
++		type: 'single',
++		title: '[图片1]',
++		options: '[图片2]\n[图片3]',
++		images: [DATA_URL_A, DATA_URL_B],
++		suggestion_title: '[图片1]',
++		suggestion_options: '[图片2]\n[图片3]',
++		screenshot: DATA_URL_C
++	});
++	ok('不抛异常', r.ok, r.err);
++	const user = (r.out && r.out[1] && r.out[1].content) || [];
++	const imgs = Array.isArray(user) ? user.filter((c: any) => c.type === 'image_url') : [];
++	ok('截图被作为最后一张图发出（2 + 1 = 3）', imgs.length === 3, String(imgs.length));
++	ok('最后一张正是 screenshot', imgs.length === 3 && imgs[2].image_url.url === DATA_URL_C);
++	const txt = Array.isArray(user) && user[0] ? user[0].text : '';
++	ok('文案说明最后一张是没有 [图片N] 的整图截图', txt.includes('整图截图'), txt.slice(0, 100));
++}
++
++console.log('\n=== ④ 关闭「允许图片题」时：开关必须被尊重（图片题此时答不了，属已知取舍） ===');
++{
++	const h = makeHandler(false, false);
++	const r = call(h, {
++		type: 'single',
++		// 真实情况下 env.title / env.options 里是远程 URL（不是 base64）
++		title: 'https://p.ananas.chaoxing.com/star3/origin/a.png',
++		options: 'https://p.ananas.chaoxing.com/star3/origin/b.png\nhttps://p.ananas.chaoxing.com/star3/origin/c.png',
++		// 即使上游已经准备好了图片与截图，关闭开关后也一张都不该发出去
++		images: [DATA_URL_A, DATA_URL_B],
++		screenshot: DATA_URL_C
++	});
++	ok('不抛异常', r.ok, r.err);
++	const user = r.out && r.out[1] && r.out[1].content;
++	ok('user.content 退回纯字符串（不发多模态块）', typeof user === 'string', typeof user);
++	ok('截图也不发（开关优先于 env.screenshot）', typeof user === 'string' && !user.includes('data:image'));
++	ok(
++		'此时选项文本是原始 URL —— 所以图片题必须开启「允许图片题」才有作答可能',
++		String(user).includes('origin/b.png'),
++		String(user).slice(0, 100)
++	);
++}
++
++console.log('\n=== ⑤ 边界：题型为空 / 无选项 / 题干为空 ===');
++{
++	const h = makeHandler(false, true);
++	ok('env 为空对象不抛异常', call(h, {}).ok);
++	ok('无选项不抛异常', call(h, { type: 'single', title: '只有题干', options: '' }).ok);
++	ok(
++		'有图片但无图片题设置时不抛异常',
++		call(h, { type: 'single', title: '', options: '', images: [DATA_URL_A] }).ok
++	);
++}
++
++console.log('\n=== ⑥ 系统提示词必须包含图片选项的作答规则（D3） ===');
++{
++	const wrappers = buildModelAnswererWrappers('opencode-go', 'fake-key-for-test', false, true);
++	const sys = ((wrappers[0] as any).data.messages.handler as string).match(/content: "((?:[^"\\]|\\.)*)"/);
++	const sysText = sys ? JSON.parse('"' + sys[1] + '"') : '';
++	ok('提示词要求图片选项输出 [图片N] 标记', sysText.includes('[图片2]'), sysText.slice(0, 120));
++	ok('提示词声明编号与图片顺序一一对应', sysText.includes('一一对应'));
++	ok('提示词仍保留「输出选项文字」作为主路径', sysText.includes('输出正确选项的完整文字'));
++}
++
++console.log(
++	'\n' +
++		(failures.length === 0 ? '✅ ' : '❌ ') +
++		pass +
++		' 通过   ❌ ' +
++		failures.length +
++		' 失败   共 ' +
++		(pass + failures.length) +
++		' 项'
++);
++if (failures.length) {
++	console.log('\n失败项：');
++	failures.forEach((f) => console.log('  - ' + f));
++	process.exit(1);
++}
