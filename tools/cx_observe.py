@@ -179,8 +179,47 @@ def main() -> None:
 
         print(f"\n=== 截图 ===")
         shot = LOGS / f"observe-{int(time.time())}.png"
-        target.screenshot(path=str(shot), full_page=False)
-        print(f"  {shot}  ({shot.stat().st_size} bytes)")
+        shot_ok = False
+        # 超星个人空间等页面有持续加载的资源，默认 30s 超时会挂：加固并允许失败继续
+        for kw in ({"animations": "disabled", "timeout": 60000},
+                   {"animations": "disabled", "caret": "initial", "timeout": 120000}):
+            try:
+                target.screenshot(path=str(shot), full_page=False, **kw)
+                shot_ok = True
+                break
+            except Exception as e:
+                print(f"  截图未完成，重试：{str(e)[:110]}")
+        if shot_ok:
+            print(f"  {shot}  ({shot.stat().st_size} bytes)")
+        else:
+            print("  截图仍失败（页面有持续加载资源）→ 跳过截图，继续 DOM 探针")
+
+        # 若停在个人空间，枚举课程入口（只读，不点击）
+        course_links = []
+        if "i.chaoxing.com" in (target.url or ""):
+            print("\n=== 个人空间：课程入口枚举（只读，未点击）===")
+            try:
+                course_links = target.evaluate(
+                    """() => {
+                      const out = [];
+                      document.querySelectorAll('a[href]').forEach(a => {
+                        const h = a.getAttribute('href') || '';
+                        if (/mycourse|courseId=|course\\//i.test(h)) {
+                          out.push({
+                            text: (a.innerText || '').trim().replace(/\\s+/g, ' ').slice(0, 60),
+                            href: h.slice(0, 220)
+                          });
+                        }
+                      });
+                      return out.slice(0, 40);
+                    }""")
+                if course_links:
+                    for l in course_links:
+                        print(f"  {l['text'][:38]:<40} {l['href']}")
+                else:
+                    print("  首页未直接找到课程链接（课程列表可能在 iframe 内，或需点『课程』进入）")
+            except Exception as e:
+                print(f"  枚举失败：{str(e)[:110]}")
 
         frames_report = []
         print("\n=== 逐 frame 探针（只读） ===")
@@ -232,7 +271,9 @@ def main() -> None:
 
         report = {
             "observed_url": target.url,
-            "screenshot": str(shot),
+            "screenshot": str(shot) if shot_ok else None,
+            "screenshot_ok": shot_ok,
+            "course_links": course_links,
             "frames": frames_report,
             "attachments": att,
             "font_face_snippets": font_global,

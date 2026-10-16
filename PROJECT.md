@@ -169,3 +169,62 @@
   **不复用其安全策略**（该项目硬禁章节测验，与本项目 D2 相反）。
 - 超星学习通教师使用手册（防拖拽 / 防窗口切换 / 任务点设置 / 文档翻页机制）
 - 超星学习通学生使用指南（学习模式：闯关 / 开放 / 上锁）
+
+## 10. 复用性验证结论（ocsjs）—— 已实测
+
+**结论：可以复用，而且应当以「fork + patch + 重建」为项目核心，不再重写驱动层。**
+
+### 10.1 构建已真实跑通（证据）
+
+| 项 | 证据 |
+|---|---|
+| 构建命令 | `node_modules\.bin\gulp.cmd -f .\scripts\build-core.js`（绕开 pnpm 的依赖校验） |
+| 退出码 | `exit=0`，`Finished 'default' after 12 s` |
+| 上游自带测试 | `testResolver` → **✅ 164 通过 ❌ 0 失败** |
+| vite 编译 | core 140 模块；scripts 194 模块，无错 |
+| 产物 | `release/ocs.user.js` **932,939 bytes**（主交付物）、`ocs.common.user.js` 933,111、`core.js` 185,018、`index.js` 872,714、`ocs.meta.js`、`style.css` |
+| 产物元数据 | `@version 5.2.1`、`@license MIT`、**34 个 `@match`**（含 `*://*.chaoxing.com/*`）、`@run-at document-start`、含 `GM_xmlhttpRequest` |
+
+完整可复现配方见 skill `build-ocsjs-userscript`。
+
+### 10.2 三个坑（非代码缺陷，均为环境漂移）
+
+1. **缺 `.env`**：`vite.config.ts` 的 `outDir: process.env.VITE_BUILD_PATH` 无默认值 → vite 执行 `path.resolve(root, undefined)` → `TypeError [ERR_INVALID_ARG_TYPE]: "paths[1]"`。
+   报错栈指向 vite 内部的 `resolve` 定义行，**极易误判为 Node 版本不兼容**（实测 Node 24 与 Node 18 报同一个错）。
+   修法：照 CI 手动建 `scripts/.env`、`packages/core/.env`、`packages/scripts/.env`。
+2. **`node-linker=hoisted` 未生效**：仓库 `.npmrc` 里写了这行，但 pnpm 10+/11 不再读它，出来的是隔离布局 → `packages/scripts` 看不到 `packages/core` 声明的 `@types/lodash` → `TS7016 Could not find a declaration file for module 'lodash/debounce'`。
+   修法：`pnpm install --node-linker=hoisted`。
+3. **`packages/utils` 需先单独编译**：`build-core.js:9` 在编译任何东西之前就 `require('../packages/utils')`。
+   修法：`tsc -p packages/utils/tsconfig.json`（即上游 `scripts/tsc.js` 的第一步）。
+
+另：`pnpm 11` 的供应链策略会把 `pnpm run build` 的依赖校验判为失败（`ERR_PNPM_IGNORED_BUILDS`），直接调 gulp 即可。
+
+### 10.3 免费得到的能力（不用写一行代码）
+
+任务点枚举（`attachments` + iframe `data` 属性）、iframe 递归遍历、音频/视频播放器驱动（`#video,#audio`）、文档与长时阅读、章节测验 DOM 契约与提交流程（`btnBlueSubmit`→`submitCheckTimes`）、题型编号体系、人脸识别“只检测不绕过”语义、`.font-cxsecret` 混淆字体还原（含参照表）、OCSWorker + 题型 resolver 答题框架、通用 HTTP 答题器、面板 UI/日志/配置系统、34 个域名 `@match`。
+
+**关键**：它的答题器是「`url` + `headers` + 一段可执行 `handler` 字符串」的通用 HTTP 答题器，因此本项目要的 `opencode-go` / `deepseek` 属于**原生配置能力**，不需要改源码。
+
+### 10.4 必须改造的清单（这就是“自研部分”）
+
+每项都给了精确定位，便于 patch：
+
+| # | 改造 | 位置 | 对应约束 |
+|---|---|---|---|
+| M1 | `@connect` 白名单加 `opencode.ai`、`api.deepseek.com` | `scripts/build-core.js` metadata.connect（现仅 7 个域名，**不加则模型请求会被脚本管理器拦截**） | —— |
+| M2 | 模型锁定：只允许这两个提供商 + 锁死 `deepseek-v4.1-flash` | 答题器配置层 | —— |
+| M3 | 删除 `rateHack()`（“屏蔽倍速限制”）与倍速配置项，强制 1.0x | `cx.ts:664`、`cx.ts:669`、`cx.ts:1338`、`cx.ts:227` | #2 |
+| M4 | 删除“屏蔽复制粘贴限制” | `cx.ts:673` | #2 |
+| M5 | 视频内题目由“随机”改为模型作答 | `cx.ts:229`（默认 `random`）、`cx.ts:1839`、`cx.ts:1841` | D2 |
+| M6 | 答不出时不再随机作答，改为放弃该题 | `cx.ts:2144`、`cx.ts:2152`、`cx.ts:2158` | D2 |
+| M7 | **新增**验证码提交前门禁（OCS 完全无此能力） | 插在 `cx.ts:2232` `btnBlueSubmit()` 与 `:2238` `submitCheckTimes()` 之间 | #3 |
+| M8 | 不重置播放进度（断点续播） | `cx.ts:1908` `media.currentTime = 0` | #2 |
+| M9 | 图片阅读不调 `finishJob()` 秒过 | `cx.ts:1923`~`1925` | #2 |
+| M10 | 禁用考试自动答题（硬禁区） | `cx.ts` 作业/考试入口 | #3 |
+
+### 10.5 对载体决策 D1 的影响
+
+D1 原选择“自研油猴脚本”的理由之一是“完全可审计”。实测后修正为：
+**以 ocsjs 为基座做 fork + patch**，理由：驱动层（2450 行 `cx.ts` + 答题框架）已在生产验证，重写它属于用户明确反对的“给自己上强度”；
+而需改动的 10 项全部集中在可定位的单点，构建闭环仅 12s，改进成本极低。
+`cx-helper.user.js`（本轮已写的 1126 行）**降级为对照参考与门禁逻辑的设计底稿**，不再作为主交付路径。
