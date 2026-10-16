@@ -1268,3 +1268,30 @@ document.querySelector('iframe').contentDocument
 
 公开仓库内容在 `.publish/`（外层仓库已 gitignore，是独立 git 仓库）：
 改动完成后同步 `dist/ocs.user.js` 到该目录 → 提交 → `git push origin main` 即可发布新版本。
+
+
+### 26.6 GitHub Release（产物作为 release asset）
+
+| 项 | 值 |
+|---|---|
+| Release 页面 | https://github.com/Zefyro-N/CXStudy/releases/tag/v5.2.1-cxstudy.1 |
+| Tag | `v5.2.1-cxstudy.1` → commit `960df76` |
+| 状态 | 已发布（非草稿、非预发布） |
+| 资源 | `ocs.user.js`(480,137 B) · `ocsjs-cxstudy.patch`(454,040 B) · `SHA256SUMS.txt` |
+| 固定下载链接 | `https://github.com/Zefyro-N/CXStudy/releases/latest/download/ocs.user.js` |
+
+### 26.7 两条分发链接的实测对比
+
+两条链接都已实测，**返回的字节完全相同**（SHA256 均为 `7CBA7AB2…`，与本地构建产物一致）：
+
+| 链接 | HTTP | Content-Type | 特点 |
+|---|---|---|---|
+| `raw.githubusercontent.com/.../main/ocs.user.js` | 200 | `text/plain; charset=utf-8` | 纯文本、无跳转；推送到 main 即生效 |
+| `github.com/.../releases/latest/download/ocs.user.js` | 200 | （经 302 跳转） | 有版本归档与变更说明；仅发 Release 时更新 |
+
+**当前配置**：`@updateURL` / `@downloadURL` 均指向 **raw** 链接
+（油猴更新检查最稳，纯文本无跳转）。
+
+**可选调整（未执行，待用户决定）**：把 `@updateURL` 改为 release 链接，
+好处是「用户只在你明确发版时才更新」，与 semver tag 配套，避免推送到 main 就影响所有用户；
+代价是需重新构建 + 发一次新 Release + 用户重装一次以载入新的更新地址。
