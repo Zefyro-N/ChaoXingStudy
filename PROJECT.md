@@ -141,6 +141,10 @@
 | `PROJECT.md` | 本文件：定位、非目标、硬约束、决策、风险 |
 | `docs/cx-mechanisms.md` | **超星前端机制知识库**（借自 ocsjs，MIT，含署名与本项目不采用的行为清单） |
 | `cx-helper.user.js` | **油猴主程序 v0.1.0**（1126 行，语法已校验，未实机验证） |
+| `tools/cx_launch.py` | 启动带调试端口的独立浏览器（headed，不登录），供 CDP 附着 |
+| `tools/cx_observe.py` | **阶段 A 只读观测**：抓 iframe 树 / 任务点判据 / 混淆字体 / 验证码特征 / attachments / 截图 |
+| `tools/probe_browser.py` | 能力探测脚本（已证实本机可驱动可见浏览器并截图回读） |
+| `.browser-profile/` | 自动化专用浏览器资料目录（含登录态 Cookie，**gitignore，用完可删**） |
 | `prompts.md` | 早期阶段提示词（P0 侦察 / P1 实现 / P2 验收）。已改由直接施工，保留作参考 |
 | `refs/ocsjs/` | 第三方参考仓库（只读，gitignore，非交付物） |
 
