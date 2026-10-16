@@ -6,8 +6,7 @@ recon/cx-state.json
 .pw-profile/
 chrome-profile/
 .chrome-profile/
-.browser-profile/
-
+.browser-profile*/
 # 原始侦察产物（可能夹带带签名的 URL / Cookie 头）
 recon/raw/
 *.jsonl
