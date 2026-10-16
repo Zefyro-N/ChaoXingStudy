@@ -237,7 +237,7 @@ D1 原选择“自研油猴脚本”的理由之一是“完全可审计”。�
 | 编号 | 改造 | 状态 | 验证方式 |
 |---|---|---|---|
 | M1 | `@connect` 接入 `opencode.ai` / `api.deepseek.com` | ✅ 完成 | 产物中 `Select-String '@connect'` 已命中两个域名 |
-| M2 | `headers` 接通 `${}` 占位符 + 注入稳定会话 ID `${__session}` | ✅ 完成 | 产物含 `__session` |
+| M2 | **模型接入落地**（非仅管道）：`cx-model.ts` 把模型包装成 OCS 原生答题器；面板只留「提供商 + API Key」；题库从答题链路摘除 | ✅ 落地 | 产物 11 项自检全通过（锁定模型、两个 endpoint、`x-opencode-session`、面板配置项、判断题极性词规则、`reasoning_content` 兜底） |
 | M3 | 倍速锁定 1.0x、禁用 rateHack | ✅ 完成 | 产物含 `本分支锁定 1.0x`；`cx.ts` 中活动赋值仅 `playbackRate = 1` |
 | M4 | 禁用屏蔽复制粘贴 | ✅ 完成 | 产物含 `__cxstudy_never_matches__` |
 | M7 | **新增验证码提交前门禁** | ✅ 代码级 | 产物含 `__cxstudyDetectCaptcha` + `cxstudy M7`；**待实机验证** |
@@ -258,7 +258,26 @@ D1 原选择“自研油猴脚本”的理由之一是“完全可审计”。�
 | 补丁可重放 | `git apply --check -R patches/ocsjs-cxstudy.patch` → 通过 | ✅ |
 | 编码完整性 | `package.json` 中文描述仍为 `在线网络课程辅助工具`，无 `鍦ㄧ嚎` 乱码 | ✅ |
 
-### 11.2 施工中踩到的两个自身失误（已修正，记录以免重犯）
+### 11.2 M2 落地细节（“能用了”与“只是修了管道”的区别）
+
+上一轮只做了 M2 的**前置条件**（让 `headers` 支持占位符、注入会话 ID），用户指正“没看到任何改动”——判断成立。
+本轮补齐真正落地的部分：
+
+1. **新增 `packages/scripts/src/utils/cx-model.ts`**：把模型包装成 OCS 原生 `AnswererWrapper`，
+   从而直接复用上游完整的题型 resolver，不重写答题框架。模型锁 `deepseek-v4.1-flash`，
+   提供商只允许 `opencode-go` / `deepseek`，不存在的值一律回退（避免任意 URL 被注入）。
+2. **题库从答题链路摘除**：`getWorkOptions()` 不再过滤 `answererWrappers`，直接覆盖为模型答题器。
+   即使面板里配了题库也不参与答题。题库按钮标注为已弃用。
+3. **面板新增「模型接入（本分支）」分组**：提供商（select，两项）+ 模型 API Key（文本，只存本地）。
+4. **修正误报**：`cx.ts` 的 `onrender` 原本检查题库是否配置，本分支下会永久弹“请配置题库”，
+   改为检查模型 API Key。
+
+**答案格式契约**（改 `cx-model.ts` 时必须遵守，否则表现为“答题没反应”）：
+单选/多选返回**选项原文**（命中 resolver 阶段 1 归一化精确匹配；阶段 3 有纯 ABCD 兜底）；
+**判断题必须返回「正确」/「错误」**——`resolveJudgement` 只认极性词，**返回字母一定失败**；
+填空返回答案文本。
+
+### 11.3 施工中踩到的自身失误（已修正，记录以免重犯）
 
 1. **类型收窄**：M3 把 `playbackRate` 配置从 `{...playbackRate}` 改成字面量对象后，
    `cfg.playbackRate` 由 `any` 收窄为 `string`，连带三处 TS 报错（`TS2365`/`TS2322`/`TS2345`）。
@@ -268,3 +287,11 @@ D1 原选择“自研油猴脚本”的理由之一是“完全可审计”。�
    已用 `git checkout` 回滚，改用 edit 工具做定点替换。**以后禁止用 PowerShell 读写含中文的源码文件。**
 3. **BOM 导致构建失败**：`Set-Content -Encoding utf8` 会写入 UTF-8 BOM，`tsx` 解析 `package.json` 直接报
    `Error parsing: package.json`。需用 `UTF8Encoding($false)` 无 BOM 写入。
+
+### 11.4 仍然待做
+
+- **M5**：视频内题目仍为上游的“随机作答”，需把 `answererWrappers` 传进 `JobRunner.media` 才能走模型。
+- **M6**：答不出时仍会随机填空，需改为放弃。
+- **精简（用户明确要求）**：题库配置的 UI 代码（`common.ts` 里 `answererWrappersButton.onload` 共数百行）
+  与 `answerer-connect` 仍在打包产物里；上游其余平台（`zhs`/`yuketang`/`icve`/`zjy`/`icourse`）
+  与本项目无关，`@match` 也仍开着数十个域名。这些只影响体积与面板观感，不影响功能。

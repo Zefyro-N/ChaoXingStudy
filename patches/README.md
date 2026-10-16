@@ -10,16 +10,18 @@
 | 基线 commit | `8b25a3f` |
 | 许可证 | MIT（保留上游署名，见产物头部 `@author enncy`） |
 | 补丁文件 | `ocsjs-cxstudy.patch` |
-| 改动范围 | 4 个文件 / +140 −11 行 |
+| 改动范围 | 6 个文件（含 1 个新增） |
 | 产物 | `dist/ocs.user.js`（936,546 bytes，`@version 5.2.1-cxstudy.1`） |
 
-## 改动的 4 个文件
+## 改动的文件
 
 | 文件 | 改了什么 | 对应 |
 |---|---|---|
 | `scripts/build-core.js` | `metadata.connect` 加入 `opencode.ai`、`api.deepseek.com` | M1 |
 | `packages/core/src/core/answer-wrapper/answer.wrapper.handler.ts` | 给 `headers` 接通 `${}` 占位符替换；注入稳定会话 ID `${__session}` | M2 |
-| `packages/scripts/src/projects/cx.ts` | 倍速锁定 1.0x、禁用 rateHack、禁用复制粘贴屏蔽、不重置播放进度、禁用 finishJob 秒过、考试硬禁区、**新增验证码提交前门禁** | M3/M4/M7/M8/M9/M10 |
+| `packages/scripts/src/utils/cx-model.ts` | **新增**。把模型包装成 OCS 原生 `AnswererWrapper`，复用上游题型 resolver；锁定模型与两个提供商；答案格式对齐 resolver 匹配阶段 | M2 |
+| `packages/scripts/src/projects/common.ts` | 面板新增「模型接入（本分支）」分组（提供商 + API Key）；`getWorkOptions()` 不再用题库，改由模型答题器提供答案；题库按钮标注弃用 | M2 |
+| `packages/scripts/src/projects/cx.ts` | 倍速锁定 1.0x、禁用 rateHack、禁用复制粘贴屏蔽、不重置播放进度、禁用 finishJob 秒过、考试硬禁区、**新增验证码提交前门禁**、模型未配置改为检查 API Key | M3/M4/M7/M8/M9/M10 |
 | `package.json` | 版本号加 `-cxstudy.1` 分支标识，便于区分上游产物 | —— |
 
 **不在补丁里的**（属环境前置，见 skill `build-ocsjs-userscript`）：
@@ -49,12 +51,30 @@ node_modules\.bin\gulp.cmd -f .\scripts\build-core.js
 # 产物：release/ocs.user.js
 ```
 
+## 模型接入怎么用（M2 落地后的实际操作）
+
+1. 装好 `dist/ocs.user.js`，进入任意学习通课程页，打开 OCS 悬浮面板。
+2. **通用 → 全局设置**，找到「模型接入（本分支）」分组，填两项：
+   - **提供商**：`opencode-go` 或 `deepseek 官方`
+   - **模型 API Key**：粘贴你的 Key（只存本地脚本存储，不写文件）
+3. 模型固定为 `deepseek-v4.1-flash`，**界面不提供其他模型入口**。
+4. 面板里的「题库配置」按钮已标注弃用——即使你配了题库，`getWorkOptions()` 也会覆盖成模型答题器，不参与答题。
+
+**答案格式契约**（改 `cx-model.ts` 时必须遵守，否则会出现“答题没反应”）：
+
+| 题型 | 要求模型输出 | 为什么 |
+|---|---|---|
+| 单选 | 选项**原文** | 命中 `resolveSingle` 阶段 1「归一化精确匹配」。阶段 3 有纯 ABCD 兜底，所以回字母也能用 |
+| 多选 | 多个选项原文，英文逗号分隔 | 同上（`resolveMultiple` 阶段 1） |
+| **判断** | **只输出「正确」或「错误」** | `resolveJudgement` 只认 CORRECT_WORDS / INCORRECT_WORDS 里的极性词。**返回字母一定失败**，这是最容易踩的坑 |
+| 填空 | 答案文本 | 直写 textarea |
+
 ## 已实现 / 未实现
 
 | 编号 | 改造 | 状态 |
 |---|---|---|
 | M1 | `@connect` 接入两个模型域名 | ✅ 已在产物中验证 |
-| M2 | `headers` 占位符 + 稳定会话 ID（OpenCode Go 必需） | ✅ |
+| M2 | **模型接入落地**（非仅管道）：新增 `cx-model.ts`，面板只留「提供商 + API Key」，题库从答题链路里摘除；`headers` 占位符 + 稳定会话 ID | ✅ 落地，产物 11 项自检全通过 |
 | M3 | 倍速锁定 1.0x，禁用 rateHack | ✅ |
 | M4 | 禁用"屏蔽复制粘贴限制" | ✅ |
 | M7 | **新增验证码提交前门禁**（上游无此能力） | ✅ 代码级完成，**待实机验证** |

@@ -57,11 +57,78 @@ index 2c23149..892daf2 100644
  					}),
  					$.sleep((AnswerWrapperHandlerConfig.timeout_seconds ?? 60) * 1000)
  				]);
+diff --git a/packages/scripts/src/projects/common.ts b/packages/scripts/src/projects/common.ts
+index aadb3d9..6594ecb 100644
+--- a/packages/scripts/src/projects/common.ts
++++ b/packages/scripts/src/projects/common.ts
+@@ -19,6 +19,7 @@ import {
+ 	isAnswererWrappersSupportImageOptimize
+ } from '../utils/work';
+ import { getAnswererConfigProvider, openAnswererConnect, waitForAnswererConfig } from '../utils/answerer-connect';
++import { buildModelAnswererWrappers, CX_LOCKED_MODEL, CX_PROVIDERS } from '../utils/cx-model';
+ import { confirmRiskyAnswerWrappers } from '../utils/answer-wrapper-security';
+ import { initEdgeMinimize } from '../utils/edge-minimize';
+ import {
+@@ -215,8 +216,30 @@ export const CommonProject = Project.create({
+ 					defaultValue: [] as string[]
+ 				},
+ 
++				// ===== [cxstudy M2] 模型接入（本分支） =====
++				// 本项目不使用题库，答题一律由下面这两个字段构造的模型答题器完成。
++				// 提供商只允许两个，模型锁死，不提供其他入口。
++				cxModelProvider: {
++					separator: '模型接入（本分支）',
++					label: '提供商',
++					tag: 'select',
++					options: Object.keys(CX_PROVIDERS).map((k) => [k, CX_PROVIDERS[k].label]),
++					attrs: {
++						title: '本分支只允许这两个提供商。模型固定为 ' + CX_LOCKED_MODEL + '，不提供修改入口。'
++					},
++					defaultValue: 'opencode-go'
++				},
++				cxModelApiKey: {
++					label: '模型 API Key',
++					attrs: {
++						type: 'text',
++						title:
++							'只保存在本地脚本存储中，不会写入任何文件；除所选提供商外不会发往任何地址。\n未填写时不会发出任何请求。'
++					},
++					defaultValue: ''
++				},
+ 				answererWrappersButton: {
+-					label: '题库配置',
++					label: '题库配置（本分支已弃用，改用上方模型接入）',
+ 					defaultValue: '点击配置',
+ 					attrs: {
+ 						type: 'button'
+@@ -1020,8 +1043,12 @@ export const CommonProject = Project.create({
+ 						/**
+ 						 * 过滤掉被禁用的题库
+ 						 */
+-						workOptions.answererWrappers = workOptions.answererWrappers.filter(
+-							(aw) => this.cfg.disabledAnswererWrapperNames.find((daw) => daw === aw.name) === undefined
++						// [cxstudy M2] 本分支不使用题库：答案统一由锁定的模型答题器提供。
++						// 题库字段（answererWrappers / disabledAnswererWrapperNames）保留以兼容上游面板，
++						// 但不再参与答题链路。此处直接覆盖为模型答题器。
++						workOptions.answererWrappers = buildModelAnswererWrappers(
++							(this.cfg as any).cxModelProvider,
++							(this.cfg as any).cxModelApiKey
+ 						);
+ 
+ 						return workOptions;
 diff --git a/packages/scripts/src/projects/cx.ts b/packages/scripts/src/projects/cx.ts
-index da82b2b..0983106 100644
+index da82b2b..1991fe7 100644
 --- a/packages/scripts/src/projects/cx.ts
 +++ b/packages/scripts/src/projects/cx.ts
-@@ -224,7 +224,20 @@ export const CXProject = Project.create({
+@@ -16,6 +16,7 @@ import { $modal, h, $store, MessageElement, Project, Script, $el, $gm, $$el, $ui
+ 
+ import { CommonEvents, CommonProject } from './common';
+ import { workNotes, volume, playbackRate, dropdownStyle } from '../utils/configs';
++import { hasModelConfigured } from '../utils/cx-model';
+ import {
+ 	answerWrapperEmptyWarning,
+ 	commonWork,
+@@ -224,7 +225,20 @@ export const CXProject = Project.create({
  						['⚠️目前超星倍速风控严重，如果高倍速', '被平台清空进度，请调到1-2倍速学习！']
  					]).outerHTML
  				},
@@ -83,7 +150,22 @@ index da82b2b..0983106 100644
  				volume: volume,
  				videoQuizStrategy: {
  					label: '视频内题目',
-@@ -429,7 +442,7 @@ export const CXProject = Project.create({
+@@ -352,7 +366,13 @@ export const CXProject = Project.create({
+ 				}
+ 			},
+ 			onrender({ panel }) {
+-				if (!CommonProject.scripts.settings.cfg.answererWrappers?.length) {
++				// [cxstudy M2] 本分支不使用题库，改为检查模型是否已配置（是否填了 API Key）
++				if (
++					!hasModelConfigured(
++						(CommonProject.scripts.settings.cfg as any).cxModelProvider,
++						(CommonProject.scripts.settings.cfg as any).cxModelApiKey
++					)
++				) {
+ 					answerWrapperEmptyWarning(10);
+ 				}
+ 
+@@ -429,7 +449,7 @@ export const CXProject = Project.create({
  						// @ts-ignore
  						if (top.currentMedia) {
  							// @ts-ignore 倍速设置
@@ -92,7 +174,7 @@ index da82b2b..0983106 100644
  							// @ts-ignore 音量设置
  							top.currentMedia.volume = this.cfg.volume;
  						}
-@@ -440,7 +453,7 @@ export const CXProject = Project.create({
+@@ -440,7 +460,7 @@ export const CXProject = Project.create({
  
  					await study({
  						...this.cfg,
@@ -101,7 +183,7 @@ index da82b2b..0983106 100644
  					});
  				}
  			}
-@@ -460,6 +473,12 @@ export const CXProject = Project.create({
+@@ -460,6 +480,12 @@ export const CXProject = Project.create({
  				}
  
  				const isExam = /\/exam\/preview/.test(location.href);
@@ -114,7 +196,7 @@ index da82b2b..0983106 100644
  				commonWork({
  					mount_script: this,
  					workerProvider: (opts) => workOrExam(isExam ? 'exam' : 'work', { ...opts, preview_mode: true })
-@@ -647,6 +666,12 @@ export const CXProject = Project.create({
+@@ -647,6 +673,12 @@ export const CXProject = Project.create({
  						duration: 0
  					});
  					const isExam = /\/exam\/test/.test(location.href);
@@ -127,7 +209,7 @@ index da82b2b..0983106 100644
  					const workOptions = CommonProject.scripts.settings.methods.getWorkOptions();
  					BackgroundProject.scripts.render.methods.pin(this);
  					commonWork({
-@@ -664,15 +689,18 @@ export const CXProject = Project.create({
+@@ -664,15 +696,18 @@ export const CXProject = Project.create({
  		rateHack: new Script({
  			name: '屏蔽倍速限制',
  			hideInPanel: true,
@@ -149,7 +231,7 @@ index da82b2b..0983106 100644
  			methods() {
  				return {
  					/** 解除输入框无法复制粘贴 */
-@@ -1905,7 +1933,9 @@ const JobRunner = {
+@@ -1905,7 +1940,9 @@ const JobRunner = {
  			media.volume = volume;
  
  			// 重置视频进度
@@ -160,7 +242,7 @@ index da82b2b..0983106 100644
  
  			// 使用 setTimeout 解决 The play() request was interrupted by a call to pause() 问题
  			setTimeout(() => {
-@@ -1922,7 +1952,11 @@ const JobRunner = {
+@@ -1922,7 +1959,11 @@ const JobRunner = {
  	 */
  	async read(win: Window & { finishJob?: Function }) {
  		const finishJob = win.finishJob;
@@ -173,7 +255,7 @@ index da82b2b..0983106 100644
  		await $.sleep(3000);
  	},
  	/**
-@@ -2232,6 +2266,26 @@ const JobRunner = {
+@@ -2232,6 +2273,26 @@ const JobRunner = {
  					// @ts-ignore 提交
  					frameWindow.btnBlueSubmit();
  
@@ -200,7 +282,7 @@ index da82b2b..0983106 100644
  					await $.sleep(3000);
  					/** 确定按钮 */
  					// @ts-ignore 确定
-@@ -2351,6 +2405,56 @@ async function readerAndFillHandle(searchInfos: SearchInformation[], list: HTMLE
+@@ -2351,6 +2412,56 @@ async function readerAndFillHandle(searchInfos: SearchInformation[], list: HTMLE
  	return { finish: false };
  }
  
@@ -257,6 +339,150 @@ index da82b2b..0983106 100644
  function hasFaceRecognition() {
  	// 人脸元素有时候 src 属性为空字符串，所以这里需要判断 src 是否为空字符串，如是则人脸识别会出现。
  	const faces = $$el<HTMLImageElement>('#fcqrimg', top?.document);
+diff --git a/packages/scripts/src/utils/cx-model.ts b/packages/scripts/src/utils/cx-model.ts
+new file mode 100644
+index 0000000..3d75753
+--- /dev/null
++++ b/packages/scripts/src/utils/cx-model.ts
+@@ -0,0 +1,138 @@
++/**
++ * [cxstudy M2] 本项目锁定的模型答题器。
++ *
++ * 设计约束（来自用户要求，不允许放宽）：
++ *   1. 只允许两个提供商：opencode-go、deepseek 官方
++ *   2. 模型严格锁定为 deepseek-v4.1-flash，界面不提供其他模型的入口
++ *   3. API Key 只存在本地脚本存储中，不写入任何项目文件
++ *
++ * 实现方式：把模型包装成 OCS 原生的 `AnswererWrapper`（通用 HTTP 答题器），
++ * 从而直接复用上游完整的题型 resolver（单选/多选/判断/填空），不重写答题框架。
++ *
++ * 答案格式必须对齐上游 resolver 的匹配阶段（这是本文件最关键的设计点）：
++ *   - 单选/多选：返回**选项原文**，命中 `resolveSingle`/`resolveMultiple` 的
++ *     阶段 1「归一化精确匹配」。阶段 3 有纯 ABCD 兜底，所以模型万一回了字母也能用。
++ *   - 判断：必须返回**极性词「正确」/「错误」**。`resolveJudgement` 只认
++ *     CORRECT_WORDS/INCORRECT_WORDS 里的词，返回字母一定失败。
++ *   - 填空：返回答案文本。
++ */
++import type { AnswererWrapper } from '@ocsjs/core';
++
++/** 锁定的模型：不提供修改入口 */
++export const CX_LOCKED_MODEL = 'deepseek-v4.1-flash';
++
++/** 只允许这两个提供商 */
++export const CX_PROVIDERS: Record<
++	string,
++	{ label: string; url: string; extraHeaders: Record<string, string> }
++> = {
++	'opencode-go': {
++		label: 'opencode-go',
++		url: 'https://opencode.ai/inference/go/v1/chat/completions',
++		extraHeaders: {
++			// OpenCode Go 要求自定义 UA + 稳定会话 ID
++			// ${__session} 由 answer.wrapper.handler.ts 的 [cxstudy M2] 补丁注入
++			'User-Agent': 'ocs-cxstudy/1.0',
++			'x-opencode-session': '${__session}'
++		}
++	},
++	deepseek: {
++		label: 'deepseek 官方',
++		url: 'https://api.deepseek.com/chat/completions',
++		extraHeaders: {}
++	}
++};
++
++/**
++ * `data.messages` 的字段解析器。
++ *
++ * 说明：OCS 允许 `data` 的每个字段是一个 `{ handler: '<字符串>' }`，
++ * 该字符串会被 `Function(...)()` 求值成一个函数，并以 `env`（题目上下文）为参数调用。
++ * 因此下面这段代码必须以**字符串**形式书写，且内部换行要写成 \\n（模板字符串转义）。
++ */
++const MESSAGES_HANDLER = `return function (env) {
++	var kindMap = { single: '单选题', multiple: '多选题', judgement: '判断题', completion: '填空题', line: '连线题', fill: '选词填空题', reader: '阅读理解题' };
++	var kind = kindMap[env.type] || '题目';
++	var letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
++	var lines = String(env.options || '').split('\\n').map(function (s) { return s.trim(); }).filter(Boolean);
++	var body = lines.length
++		? '题干：' + env.title + '\\n选项：\\n' + lines.map(function (t, i) { return letters.charAt(i) + '. ' + t; }).join('\\n')
++		: '题干：' + env.title;
++	var rule = kind === '判断题'
++		? '判断题只输出“正确”或“错误”这两个词中的一个，不要输出字母，不要输出其他任何内容。'
++		: (kind === '多选题'
++			? '多选题请输出所有正确选项的完整文字，多个之间用英文逗号分隔。不要输出字母。'
++			: (kind === '填空题'
++				? '直接输出答案文本。'
++				: '请输出正确选项的完整文字，不要输出字母，不要输出解释。'));
++	return [{
++		role: 'user',
++		content: '你是答题助手。请回答下面的' + kind + '，只输出答案。' + rule + '\\n\\n' + body + '\\n\\n答案：'
++	}];
++};`;
++
++/**
++ * 响应处理器。返回 `[题目, 答案]` 二元组（上游要求）。
++ *
++ * 题目字段留空：上游只有 `results[].answer` 参与 resolver 匹配，
++ * `question` 仅用于结果面板展示。
++ *
++ * 兼容思考模型：`content` 为空时（max_tokens 被 reasoning 烧光）从
++ * `reasoning_content` 尾部用正则兜底 —— 这是从 E:\Code\Estudy 的 askModel() 复刻的行为。
++ */
++const RESPONSE_HANDLER = `return function (res) {
++	var ch = (res && res.choices && res.choices[0]) || {};
++	var msg = ch.message || {};
++	var text = String(msg.content || '').trim();
++	if (!text) {
++		var rs = String(msg.reasoning_content || '');
++		var cand = rs.slice(-500).toUpperCase().match(/\\b([A-F])\\b/g);
++		text = cand && cand.length ? cand[cand.length - 1] : '';
++	}
++	return ['', text];
++};`;
++
++/**
++ * 构建本项目的模型答题器。
++ *
++ * @param provider 提供商 id，只接受 CX_PROVIDERS 的键，其他值一律回退到 opencode-go
++ * @param apiKey   模型 API Key；为空时返回空数组（下游会提示"未配置题库"，此时不会发出任何请求）
++ */
++export function buildModelAnswererWrappers(provider: string, apiKey: string): AnswererWrapper[] {
++	const key = String(apiKey || '').trim();
++	if (!key) return [];
++
++	// 不存在的提供商一律回退，避免任意 URL 被注入
++	const p = CX_PROVIDERS[provider] || CX_PROVIDERS['opencode-go'];
++
++	return [
++		{
++			name: p.label + ' / ' + CX_LOCKED_MODEL,
++			homepage: p.url,
++			url: p.url,
++			method: 'post',
++			type: 'GM_xmlhttpRequest',
++			responseType: 'json',
++			headers: Object.assign(
++				{
++					Authorization: 'Bearer ' + key,
++					'Content-Type': 'application/json'
++				},
++				p.extraHeaders
++			) as Record<string, string>,
++			data: {
++				model: CX_LOCKED_MODEL,
++				messages: { handler: MESSAGES_HANDLER },
++				max_tokens: 4096,
++				temperature: 0,
++				stream: false
++			},
++			handler: RESPONSE_HANDLER
++		} as unknown as AnswererWrapper
++	];
++}
++
++/** 是否已配置可用的模型答题器 */
++export function hasModelConfigured(provider: string, apiKey: string): boolean {
++	return buildModelAnswererWrappers(provider, apiKey).length > 0;
++}
 diff --git a/scripts/build-core.js b/scripts/build-core.js
 index 2d2f0e9..cc17a2c 100644
 --- a/scripts/build-core.js
