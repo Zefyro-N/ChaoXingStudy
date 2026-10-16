@@ -228,3 +228,43 @@ D1 原选择“自研油猴脚本”的理由之一是“完全可审计”。�
 **以 ocsjs 为基座做 fork + patch**，理由：驱动层（2450 行 `cx.ts` + 答题框架）已在生产验证，重写它属于用户明确反对的“给自己上强度”；
 而需改动的 10 项全部集中在可定位的单点，构建闭环仅 12s，改进成本极低。
 `cx-helper.user.js`（本轮已写的 1126 行）**降级为对照参考与门禁逻辑的设计底稿**，不再作为主交付路径。
+
+## 11. 改造进度（施工中）
+
+补丁：`patches/ocsjs-cxstudy.patch`（4 个文件，+140 −11）。复现步骤与陷阱见 `patches/README.md`
+与 skill `build-ocsjs-userscript`。
+
+| 编号 | 改造 | 状态 | 验证方式 |
+|---|---|---|---|
+| M1 | `@connect` 接入 `opencode.ai` / `api.deepseek.com` | ✅ 完成 | 产物中 `Select-String '@connect'` 已命中两个域名 |
+| M2 | `headers` 接通 `${}` 占位符 + 注入稳定会话 ID `${__session}` | ✅ 完成 | 产物含 `__session` |
+| M3 | 倍速锁定 1.0x、禁用 rateHack | ✅ 完成 | 产物含 `本分支锁定 1.0x`；`cx.ts` 中活动赋值仅 `playbackRate = 1` |
+| M4 | 禁用屏蔽复制粘贴 | ✅ 完成 | 产物含 `__cxstudy_never_matches__` |
+| M7 | **新增验证码提交前门禁** | ✅ 代码级 | 产物含 `__cxstudyDetectCaptcha` + `cxstudy M7`；**待实机验证** |
+| M8 | 不重置播放进度 | ✅ 完成 | `cx.ts` 中仅剩注释行 |
+| M9 | 禁用 `finishJob()` 秒过 | ✅ 完成 | 产物含 `cxstudy M9`；**行为变更风险最高，待实机验证** |
+| M10 | 考试硬禁区 | ✅ 完成 | 产物含 `cxstudy M10` |
+| M5 | 视频内题目：随机 → 模型作答 | ⬜ 待做 | 需把 `answererWrappers` 接入 `JobRunner.media` |
+| M6 | 答不出不再随机，改为放弃 | ⬜ 待做 | `cx.ts` 的 `randomWork-choice` / `randomWork-complete` |
+
+### 11.1 验证记录（真实命令与输出）
+
+| 项 | 证据 | 结果 |
+|---|---|---|
+| 构建 | `node_modules\.bin\gulp.cmd -f .\scripts\build-core.js` → `exit=0`，`Finished 'default' after 22 s` | ✅ |
+| 上游单测 | `testResolver` → `✅ 164 通过 ❌ 0 失败 共 164 项` | ✅ |
+| 产物版本 | `// @version  5.2.1-cxstudy.1`（证明版本号补丁生效） | ✅ |
+| 产物大小 | `release/ocs.user.js` = 936,546 bytes（上游为 932,939） | ✅ |
+| 补丁可重放 | `git apply --check -R patches/ocsjs-cxstudy.patch` → 通过 | ✅ |
+| 编码完整性 | `package.json` 中文描述仍为 `在线网络课程辅助工具`，无 `鍦ㄧ嚎` 乱码 | ✅ |
+
+### 11.2 施工中踩到的两个自身失误（已修正，记录以免重犯）
+
+1. **类型收窄**：M3 把 `playbackRate` 配置从 `{...playbackRate}` 改成字面量对象后，
+   `cfg.playbackRate` 由 `any` 收窄为 `string`，连带三处 TS 报错（`TS2365`/`TS2322`/`TS2345`）。
+   用 `{...} as any` 保住上游的类型宽度。
+2. **PowerShell 破坏 UTF-8**：用 `Get-Content -Raw` + `Set-Content` 改 `package.json`，
+   在 zh-CN 下按 GBK 解码 UTF-8 源码，把中文描述写成乱码并顺带改了行尾。
+   已用 `git checkout` 回滚，改用 edit 工具做定点替换。**以后禁止用 PowerShell 读写含中文的源码文件。**
+3. **BOM 导致构建失败**：`Set-Content -Encoding utf8` 会写入 UTF-8 BOM，`tsx` 解析 `package.json` 直接报
+   `Error parsing: package.json`。需用 `UTF8Encoding($false)` 无 BOM 写入。

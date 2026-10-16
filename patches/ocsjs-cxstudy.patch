@@ -1,0 +1,277 @@
+diff --git a/package.json b/package.json
+index a715d35..578c826 100644
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+ 	"name": "ocsjs",
+-	"version": "5.2.1",
++	"version": "5.2.1-cxstudy.1",
+ 	"description": "ocs - online course script 在线网络课程辅助工具",
+ 	"types": "./lib/src/core/index.d.ts",
+ 	"main": "./lib/src/core/index.js",
+diff --git a/packages/core/src/core/answer-wrapper/answer.wrapper.handler.ts b/packages/core/src/core/answer-wrapper/answer.wrapper.handler.ts
+index 2c23149..892daf2 100644
+--- a/packages/core/src/core/answer-wrapper/answer.wrapper.handler.ts
++++ b/packages/core/src/core/answer-wrapper/answer.wrapper.handler.ts
+@@ -7,6 +7,24 @@ export const AnswerWrapperHandlerConfig = {
+ 	timeout_seconds: 60
+ };
+ 
++/**
++ * [cxstudy M2] 单次运行内稳定不变的会话 ID。
++ *
++ * OpenCode Go 要求携带稳定的 x-opencode-session 头（每次会话一个 ID），
++ * 否则请求会被拒。上游不支持在 headers 里写动态值，故由本函数注入
++ * `${__session}` 占位符的值。
++ */
++let __cxSessionId: string | undefined;
++function getOrCreateSessionId(): string {
++	if (!__cxSessionId) {
++		__cxSessionId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
++			const r = (Math.random() * 16) | 0;
++			return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
++		});
++	}
++	return __cxSessionId;
++}
++
+ /**
+  *
+  * 默认题库配置解析器
+@@ -80,6 +98,8 @@ export async function defaultAnswerWrapperHandler(
+ 	if (env.images === undefined) env.images = [];
+ 	if (env.suggestion_title === undefined) env.suggestion_title = '';
+ 	if (env.suggestion_options === undefined) env.suggestion_options = '';
++	// [cxstudy M2] 注入稳定会话 ID，供 headers 中的 ${__session} 占位符使用
++	if (env.__session === undefined) env.__session = getOrCreateSessionId();
+ 	// 多线程请求
+ 	await Promise.all(
+ 		temp.map(async (wrapper) => {
+@@ -154,7 +174,7 @@ export async function defaultAnswerWrapperHandler(
+ 						responseType: responseType || contentType,
+ 						data: requestData,
+ 						type,
+-						headers: JSON.parse(JSON.stringify(headers || {}))
++						headers: resolvePlaceHolder(JSON.parse(JSON.stringify(headers || {}))), // [cxstudy M2] 接通 headers 占位符（见下方注释）
+ 					}),
+ 					$.sleep((AnswerWrapperHandlerConfig.timeout_seconds ?? 60) * 1000)
+ 				]);
+diff --git a/packages/scripts/src/projects/cx.ts b/packages/scripts/src/projects/cx.ts
+index da82b2b..0983106 100644
+--- a/packages/scripts/src/projects/cx.ts
++++ b/packages/scripts/src/projects/cx.ts
+@@ -224,7 +224,20 @@ export const CXProject = Project.create({
+ 						['⚠️目前超星倍速风控严重，如果高倍速', '被平台清空进度，请调到1-2倍速学习！']
+ 					]).outerHTML
+ 				},
+-				playbackRate: { ...playbackRate, attrs: { title: HIGHT_PLAYBACK_RATE_WARNS.join('\n') } },
++				// [cxstudy M3] 硬约束：不使用倍速。上游此处是可调 select（1~16x），本分支锁定为 1.0x。
++				playbackRate: {
++					...playbackRate,
++					label: '播放倍数（本分支锁定 1.0x）',
++					options: [['1', '1 x（锁定）']],
++					attrs: {
++						title:
++							'本项目硬约束：不采用倍速（1.0x）。ocjs 的 rateHack（屏蔽倍速限制）已在本分支禁用。上游警告仅作提示：' +
++							HIGHT_PLAYBACK_RATE_WARNS.join('；')
++					},
++					defaultValue: '1'
++					// [cxstudy M3] 用 as any 保持与上游一致的宽松类型：
++					// 若写成字面量对象会让 cfg.playbackRate 收窄为 string，破坏 study() 的 number 形参
++				} as any,
+ 				volume: volume,
+ 				videoQuizStrategy: {
+ 					label: '视频内题目',
+@@ -429,7 +442,7 @@ export const CXProject = Project.create({
+ 						// @ts-ignore
+ 						if (top.currentMedia) {
+ 							// @ts-ignore 倍速设置
+-							top.currentMedia.playbackRate = parseFloat(this.cfg.playbackRate.toString());
++							top.currentMedia.playbackRate = 1; // [cxstudy M3] 硬约束：恒为 1.0x，不读取配置值
+ 							// @ts-ignore 音量设置
+ 							top.currentMedia.volume = this.cfg.volume;
+ 						}
+@@ -440,7 +453,7 @@ export const CXProject = Project.create({
+ 
+ 					await study({
+ 						...this.cfg,
+-						playbackRate: parseFloat(this.cfg.playbackRate.toString())
++						playbackRate: 1 // [cxstudy M3] 硬约束：恒为 1.0x
+ 					});
+ 				}
+ 			}
+@@ -460,6 +473,12 @@ export const CXProject = Project.create({
+ 				}
+ 
+ 				const isExam = /\/exam\/preview/.test(location.href);
++				// [cxstudy M10] 考试是硬禁区：不自动作答、不提交。
++				if (isExam) {
++					$console.warn('[cxstudy M10] 检测到考试整卷预览页面 → 已跳过自动作答。');
++					$message.warn({ content: '考试为硬禁区：本分支不会自动作答考试，请自行完成。', duration: 0 });
++					return;
++				}
+ 				commonWork({
+ 					mount_script: this,
+ 					workerProvider: (opts) => workOrExam(isExam ? 'exam' : 'work', { ...opts, preview_mode: true })
+@@ -647,6 +666,12 @@ export const CXProject = Project.create({
+ 						duration: 0
+ 					});
+ 					const isExam = /\/exam\/test/.test(location.href);
++					// [cxstudy M10] 考试是硬禁区：不自动作答、不提交。
++					if (isExam) {
++						$console.warn('[cxstudy M10] 检测到考试答题页面 → 已跳过自动作答。');
++						$message.warn({ content: '考试为硬禁区：本分支不会自动作答考试，请自行完成。', duration: 0 });
++						return;
++					}
+ 					const workOptions = CommonProject.scripts.settings.methods.getWorkOptions();
+ 					BackgroundProject.scripts.render.methods.pin(this);
+ 					commonWork({
+@@ -664,15 +689,18 @@ export const CXProject = Project.create({
+ 		rateHack: new Script({
+ 			name: '屏蔽倍速限制',
+ 			hideInPanel: true,
+-			matches: [['', '/ananas/modules/video/']],
++			// [cxstudy M3] 原路由 /ananas/modules/video/ 会调用 rateHack() 屏蔽超星倍速限制。
++			// 本项目硬约束为 1.0x 真实速率，故改为永不匹配的路由（onstart 保留以维持引用）。
++			matches: [['', '/__cxstudy_disabled_ratehack__/']],
+ 			onstart() {
+ 				rateHack();
+ 			}
+ 		}),
+ 		copyHack: new Script({
+-			name: '屏蔽复制粘贴限制',
++			name: '屏蔽复制粘贴限制（本分支已禁用）',
+ 			hideInPanel: true,
+-			matches: [['所有页面', /.*/]],
++			// [cxstudy M4] 屏蔽复制粘贴限制属对抗性行为，本项目不需要，改为永不匹配。
++			matches: [['所有页面', /__cxstudy_never_matches__/]],
+ 			methods() {
+ 				return {
+ 					/** 解除输入框无法复制粘贴 */
+@@ -1905,7 +1933,9 @@ const JobRunner = {
+ 			media.volume = volume;
+ 
+ 			// 重置视频进度
+-			media.currentTime = 0;
++			// [cxstudy M8] 上游此处将进度重置为 0（从头重播）。本项目按真实速率推进，
++			// 改为沿用超星播放器自身的断点续播，避免浪费已观看时长。
++			// media.currentTime = 0;
+ 
+ 			// 使用 setTimeout 解决 The play() request was interrupted by a call to pause() 问题
+ 			setTimeout(() => {
+@@ -1922,7 +1952,11 @@ const JobRunner = {
+ 	 */
+ 	async read(win: Window & { finishJob?: Function }) {
+ 		const finishJob = win.finishJob;
+-		if (finishJob) finishJob();
++		// [cxstudy M9] 上游直接调用页面自身的 finishJob() 标记任务点完成，等价于“不做而标记完成”。
++		// 本项目硬约束 #2 不采用“秒过”，故不再调用它，改为依赖真实翻阅推进。
++		// 若图片阅读任务点长期无法完成，说明翻阅入口需实测校正（见 PROJECT.md 风险清单）。
++		$console.warn('[cxstudy M9] 已禁用 finishJob() 秒过：图片阅读任务点依赖真实翻阅。');
++		void finishJob;
+ 		await $.sleep(3000);
+ 	},
+ 	/**
+@@ -2232,6 +2266,26 @@ const JobRunner = {
+ 					// @ts-ignore 提交
+ 					frameWindow.btnBlueSubmit();
+ 
++					// ===== [cxstudy M7] 提交前人机验证门禁（OCS 上游无此能力）=====
++					// 位置很关键：btnBlueSubmit() 只弹确认框，真正的提交请求由 submitCheckTimes() 触发。
++					// 只有在此拦下才能保证“本次不提交、不产生提交记录”。
++					const cap = detectCaptcha((frameWindow as any).document);
++					if (cap.hit) {
++						$console.warn('[cxstudy M7] 提交前检测到人机验证（' + cap.by + '）→ 本次不确认提交。');
++						$message.warn({
++							content: '检测到人机验证，本次已放弃提交（不产生提交记录），请人工处理该测验。',
++							duration: 0
++						});
++						try {
++							(top as any).$('#workpop').hide();
++						} catch (e) {
++							/* 忽略 */
++						}
++						return;
++					}
++					$console.warn('[cxstudy M7] 提交前门禁未命中，继续确认提交。');
++					// ===== M7 结束 =====
++
+ 					await $.sleep(3000);
+ 					/** 确定按钮 */
+ 					// @ts-ignore 确定
+@@ -2351,6 +2405,56 @@ async function readerAndFillHandle(searchInfos: SearchInformation[], list: HTMLE
+ 	return { finish: false };
+ }
+ 
++/**
++ * [cxstudy M7] 提交前人机验证检测。
++ *
++ * 只检测，不识别、不拖动、不重试。宁可误判跳过，也不误提交。
++ *
++ * 注：本函数**故意不包含通用的 `.slider` 选择器**。
++ * 实测超星课表组件（kb.chaoxing.com/res/pc/curriculum/schedule.html）也带 `.slider`，
++ * 该选择器会产生误报。
++ */
++function detectCaptcha(doc: Document): { hit: boolean; by: string } {
++	const topDoc: Document = (($gm.unsafeWindow as any).top?.document as Document) || doc;
++	const hints: [string, string][] = [
++		['img[src*="captcha"]', 'captcha 图片'],
++		['img[src*="validate"]', 'validate 图片'],
++		['#yzmImg, .yzmImg, .yzm, .picCode, .refresh-code', '图形验证码（超星常用类名）'],
++		['#verifyCode, #validateCode, #captcha', '验证码元素 id'],
++		['input[name="validateCode"], input[name="verifyCode"], input[name="captcha"]', '验证码输入框'],
++		['.verifyimg, .validateCode, .captcha', '验证码容器类名'],
++		['.geetest_panel, .nc-container, .verify-slider, .slide-verify, .nc_scale', '滑块验证组件']
++	];
++	for (const [sel, by] of hints) {
++		try {
++			if (doc.querySelector(sel)) return { hit: true, by: by + ' @frame' };
++		} catch (e) {
++			/* 跳域，忽略 */
++		}
++		try {
++			if (topDoc.querySelector(sel)) return { hit: true, by: by + ' @top' };
++		} catch (e) {
++			/* 跳域，忽略 */
++		}
++	}
++	try {
++		const txt = ((doc.body && doc.body.innerText) || '') + ' ' + ((topDoc.body && topDoc.body.innerText) || '');
++		for (const w of ['请输入验证码', '人机验证', '拖动滑块', '完成验证', '验证码校验']) {
++			if (txt.indexOf(w) >= 0) return { hit: true, by: '文案「' + w + '」' };
++		}
++	} catch (e) {
++		/* 忽略 */
++	}
++	return { hit: false, by: '' };
++}
++
++/** 供离线负向用例调用（P2 验收用），不参与正常流程 */
++try {
++	($gm.unsafeWindow as any).__cxstudyDetectCaptcha = detectCaptcha;
++} catch (e) {
++	/* 忽略 */
++}
++
+ function hasFaceRecognition() {
+ 	// 人脸元素有时候 src 属性为空字符串，所以这里需要判断 src 是否为空字符串，如是则人脸识别会出现。
+ 	const faces = $$el<HTMLImageElement>('#fcqrimg', top?.document);
+diff --git a/scripts/build-core.js b/scripts/build-core.js
+index 2d2f0e9..cc17a2c 100644
+--- a/scripts/build-core.js
++++ b/scripts/build-core.js
+@@ -92,7 +92,12 @@ async function createUserJs() {
+ 				icon: 'https://cdn.ocsjs.com/logo.png',
+ 				connect: ['enncy.cn', 'icodef.com', 'ocsjs.com', 'zaizhexue.top', 'localhost', '127.0.0.1',
+ 					// 智慧树阿里云资源，应用： 图片题资源访问
+-					'aliyuncs.com'],
++					'aliyuncs.com',
++					// [cxstudy M1] 本项目接入的模型提供商。
++					// 不加入白名单会被脚本管理器的 GM_xmlhttpRequest 跳域检查拦截，
++					// 表现为模型请求静默失败（控制台看不到报错，只看到答题无结果）。
++					'opencode.ai',
++					'api.deepseek.com'],
+ 				match: matchMetadata,
+ 				grant: [
+ 					'GM_info',
