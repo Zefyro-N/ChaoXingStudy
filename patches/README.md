@@ -35,8 +35,11 @@ git clone --depth 1 --single-branch --branch 5.0 https://github.com/ocsjs/ocsjs.
 cd ocsjs
 git fetch --depth 1 origin 8b25a3f; git checkout 8b25a3f
 
-# 2. 打补丁
-git apply <项目路径>\patches\ocsjs-cxstudy.patch
+# 2. 打补丁（必须加 --ignore-whitespace）
+#    原因：源码工作区是混合行尾（CRLF/LF），而上游 blob 是 LF，不加会报 patch does not apply
+git apply --ignore-whitespace <项目路径>\patches\ocsjs-cxstudy.patch
+
+# 基线 commit 记录在 patches/UPSTREAM_BASE.txt（8b25a3f44523a0d4b7373878488056f4aa478cf6）
 
 # 3. 环境前置（关键，缺一不可）
 'scripts/.env'          | Set-Content -Value 'BUILD_PATH="../release"'
@@ -327,3 +330,20 @@ M9 当时只是把上游的 `win.finishJob()` 调用删掉，**没有实现任�
 
 **已确认的教训**：本轮所有“卡住”都不是能力问题，而是**在没有 DOM 证据的情况下拒绝猜字段**。
 这是刻意选择 —— 同架构的 EStudy 项目最初翻车正是因为猜字段。
+
+
+---
+
+# 补丁使用注意（第三轮补充）
+
+| 项 | 说明 |
+|---|---|
+| 基线 commit | `8b25a3f44523a0d4b7373878488056f4aa478cf6`（见 `UPSTREAM_BASE.txt`） |
+| 导出方式 | `git diff --ignore-cr-at-eol <基线> -- <9 个文件>`，避免行尾造成整文件噪声 |
+| 应用方式 | `git apply --ignore-whitespace <补丁>`，已在干净克隆上验证可完整重现 |
+| 验证方式 | 应用后检索 `cxstudy M14`（12 处）、`cxstudy M12`（2 处）、`cxAllowFinishJob`（2 处）、`deepseek-v4.1-flash`（2 处） |
+| 交付物 | `dist/ocs.user.js` —— 补丁只是可追溯性产物，真正要装的是这个 |
+
+**M9 最终处置**：`finishJob()` 默认**开启**（`cxAllowFinishJob: true`）。
+阅读器在跳域 iframe `pan-yz.chaoxing.com` 内，用户脚本无法访问其 DOM，
+`finishJob()` 是该任务类型唯一可行的完成机制；文档任务点无时间门槛。

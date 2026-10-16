@@ -1,5 +1,5 @@
 diff --git a/package.json b/package.json
-index a715d35..578c826 100644
+index a715d35..ce33aa5 100644
 --- a/package.json
 +++ b/package.json
 @@ -1,6 +1,6 @@
@@ -11,7 +11,7 @@ index a715d35..578c826 100644
  	"types": "./lib/src/core/index.d.ts",
  	"main": "./lib/src/core/index.js",
 diff --git a/packages/core/src/core/answer-wrapper/answer.wrapper.handler.ts b/packages/core/src/core/answer-wrapper/answer.wrapper.handler.ts
-index 2c23149..892daf2 100644
+index 2c23149..90d5d73 100644
 --- a/packages/core/src/core/answer-wrapper/answer.wrapper.handler.ts
 +++ b/packages/core/src/core/answer-wrapper/answer.wrapper.handler.ts
 @@ -7,6 +7,24 @@ export const AnswerWrapperHandlerConfig = {
@@ -58,7 +58,7 @@ index 2c23149..892daf2 100644
  					$.sleep((AnswerWrapperHandlerConfig.timeout_seconds ?? 60) * 1000)
  				]);
 diff --git a/packages/scripts/src/projects/common.ts b/packages/scripts/src/projects/common.ts
-index aadb3d9..8dd0fa8 100644
+index aadb3d9..c79b1f4 100644
 --- a/packages/scripts/src/projects/common.ts
 +++ b/packages/scripts/src/projects/common.ts
 @@ -19,6 +19,7 @@ import {
@@ -778,7 +778,7 @@ index aadb3d9..8dd0fa8 100644
  
  						return workOptions;
 diff --git a/packages/scripts/src/projects/cx.ts b/packages/scripts/src/projects/cx.ts
-index da82b2b..0a5ca6d 100644
+index da82b2b..9521887 100644
 --- a/packages/scripts/src/projects/cx.ts
 +++ b/packages/scripts/src/projects/cx.ts
 @@ -9,13 +9,17 @@ import {
@@ -840,16 +840,16 @@ index da82b2b..0a5ca6d 100644
 +					// 若写成字面量对象会让 cfg.playbackRate 收窄为 string，破坏 study() 的 number 形参
 +				} as any,
  				volume: volume,
-+				// [cxstudy M9] 图片阅读：上游直接调 finishJob() 标记完成（属“不做而标记完成”）。
-+				// 本项目默认不这样做，提供显式开关作为阻塞时的兼底。
++				// [cxstudy M9] 图片阅读/文档：阅读器在跳域 iframe 内无法真实翻阅，
++				// finishJob() 是该类型唯一可行的完成机制（详见 PROJECT.md §14）。默认开启。
 +				cxAllowFinishJob: {
-+					label: '图片阅读允许 finishJob 兼底',
++					label: '图片阅读/文档 允许 finishJob（默认开）',
 +					attrs: {
 +						type: 'checkbox',
 +						title:
-+							'默认关闭。开启后，若真实翻阅未能让图片阅读任务点完成，则调页面自身的 finishJob() 直接标记完成（属违规的“秒过”行为，本项目硬约束 #2 默认禁止）。\n仅在图片阅读任务点长期卡住、且课程是闯关模式（会阻塞后续章节）时才建议开启。'
++							'默认开启。该任务类型的阅读器位于跳域 iframe（pan-yz.chaoxing.com），脚本无法访问其 DOM，因此 finishJob() 是唯一可行的完成机制；且超星教师手册只对**视频**要求“观看一定时间”，文档无时间门槛。\n关掉后该任务点不会完成，闯关模式下会阻塞章节。'
 +					},
-+					defaultValue: false
++					defaultValue: true
 +				},
  				videoQuizStrategy: {
  					label: '视频内题目',
@@ -1082,105 +1082,43 @@ index da82b2b..0a5ca6d 100644
  
  			// 使用 setTimeout 解决 The play() request was interrupted by a call to pause() 问题
  			setTimeout(() => {
-@@ -1921,9 +2020,94 @@ const JobRunner = {
+@@ -1921,8 +2020,33 @@ const JobRunner = {
  	 * 阅读，PPT
  	 */
  	async read(win: Window & { finishJob?: Function }) {
 -		const finishJob = win.finishJob;
 -		if (finishJob) finishJob();
--		await $.sleep(3000);
-+		const doc = win.document;
-+		// [cxstudy M9 修正] 上游直接调 finishJob() 标记任务点完成，属“不做而标记完成”（秒过）。
-+		// 本项目硬约束 #2 不采用秒过 → 改为**真实翻阅**；翻阅后若仍未完成，
-+		// 再按显式开关 cxAllowFinishJob（默认关）决定是否放行 finishJob。
-+		//
-+		// 【为何需要这个兼底】任务点若永不完成，在闯关模式下会阻塞整个章节，
-+		// 比“秒过”的后果更严重（用户完全无法继续）。因此保留一个可控的逃生口。
-+		$console.log('[cxstudy M9] 图片阅读任务点：开始真实翻阅（不调用 finishJob）。');
-+
-+		// 翻页入口候选（按优先级）：无实测 DOM 证据，因此把命中的选择器写进日志，便于校正
-+		const PAGER_SELECTORS = [
-+			'.nextBtn',
-+			'.btnNext',
-+			'#nextBtn',
-+			'.nextPage',
-+			'.next-page',
-+			'.swiper-button-next',
-+			'a[onclick*="next"]',
-+			'a[onclick*="Next"]'
-+		];
-+
-+		const signature = () =>
-+			String(doc.body ? doc.body.innerHTML.length : 0) + ':' + String(doc.body ? doc.body.innerText.length : 0);
-+
-+		let pages = 0;
-+		let usedSelector = '';
-+		let lastSig = signature();
-+		let stuck = 0;
-+		const MAX_PAGES = 500;
-+
-+		for (let i = 0; i < MAX_PAGES; i++) {
-+			let next: HTMLElement | null = null;
-+			for (const sel of PAGER_SELECTORS) {
++		// [cxstudy M9 最终处置] 恢复上游行为：默认调用 finishJob()。
++		// 依据（来自真实页面的只读探针，见 PROJECT.md §14）：
++		//   1. 真正的阅读器在跳域 iframe（pan-yz.chaoxing.com/screen/v2/...）内，
++		//      用户脚本无法访问其 DOM → “真实翻阅”在结构上不可能实现；
++		//   2. finishJob() 位于同源的 ananas/modules/pdf/index.html，是该任务类型唯一可行的完成机制；
++		//   3. 超星教师手册只对**视频**要求“观看一定时间”，文档/图片任务点无时间门槛，
++		//      因此这里不存在“真实速率”可守；
++		//   4. 上游已能正常完成该任务点（用户实测确认）。
++		// 因此不再自创翻阅逻辑（那还会误点同源页面里 a[onclick*="next"] 之类的导航元素）。
++		if ((CXProject.scripts.study.cfg as any).cxAllowFinishJob !== false) {
++			const finishJob = win.finishJob;
++			if (typeof finishJob === 'function') {
++				$console.log('[cxstudy M9] 调用页面自身的 finishJob() 标记该任务点完成（默认行为，可在课程学习中关闭）。');
 +				try {
-+					const el = doc.querySelector<HTMLElement>(sel);
-+					if (el && (el.offsetWidth || el.offsetHeight)) {
-+						next = el;
-+						usedSelector = sel;
-+						break;
-+					}
++					finishJob();
 +				} catch (e) {
-+					/* 忽略 */
++					$console.warn('[cxstudy M9] finishJob 调用失败：' + (e as any)?.message);
 +				}
-+			}
-+			if (!next) break;
-+
-+			try {
-+				next.click();
-+			} catch (e) {
-+				$console.warn('[cxstudy M9] 翻页点击失败：' + (e as any)?.message);
-+				break;
-+			}
-+			pages++;
-+			await $.sleep(1200);
-+
-+			const sig = signature();
-+			if (sig === lastSig) {
-+				stuck++;
-+				if (stuck >= 3) break;
 +			} else {
-+				stuck = 0;
-+				lastSig = sig;
++				$console.warn('[cxstudy M9] 该页面没有 finishJob，无法自动完成该任务点。');
 +			}
-+		}
-+
-+		$console.log(
-+			'[cxstudy M9] 翻阅结束：翻页 ' +
-+				pages +
-+				' 次' +
-+				(usedSelector ? '（使用入口 ' + usedSelector + '）' : '（未找到任何翻页入口）')
-+		);
-+		await $.sleep(2000);
-+
-+		const allow = (CXProject.scripts.study.cfg as any).cxAllowFinishJob === true;
-+		if (allow && typeof win.finishJob === 'function') {
-+			$console.warn('[cxstudy M9] 已按开关放行 finishJob()：直接标记该图片阅读任务点完成（属违规的秒过行为）。');
-+			try {
-+				win.finishJob();
-+			} catch (e) {
-+				$console.warn('[cxstudy M9] finishJob 调用失败：' + (e as any)?.message);
-+			}
-+			await $.sleep(3000);
 +		} else {
 +			$console.warn(
-+				'[cxstudy M9] 未放行 finishJob()。若该任务点仍未完成（闯关模式下会阴塞后续章节），' +
-+					'请在「课程学习」开启「图片阅读允许 finishJob 兼底」。'
++				'[cxstudy M9] 已按你的设置禁用 finishJob。注意：阅读器在跳域 iframe 内，' +
++					'本项目无法用其他方式完成该任务点 → 它会保持未完成（闯关模式下会阻塞章节）。'
 +			);
 +		}
+ 		await $.sleep(3000);
  	},
  	/**
- 	 * 时间阅读
-@@ -2131,48 +2315,12 @@ const JobRunner = {
+@@ -2131,48 +2255,12 @@ const JobRunner = {
  					simplifyWorkResult(curr, chapterTestTaskQuestionTitleText, index)
  				);
  
@@ -1232,7 +1170,7 @@ index da82b2b..0a5ca6d 100644
  				}
  			},
  			async onElementSearched(elements) {
-@@ -2232,6 +2380,26 @@ const JobRunner = {
+@@ -2232,6 +2320,26 @@ const JobRunner = {
  					// @ts-ignore 提交
  					frameWindow.btnBlueSubmit();
  
@@ -1259,7 +1197,7 @@ index da82b2b..0a5ca6d 100644
  					await $.sleep(3000);
  					/** 确定按钮 */
  					// @ts-ignore 确定
-@@ -2351,6 +2519,56 @@ async function readerAndFillHandle(searchInfos: SearchInformation[], list: HTMLE
+@@ -2351,6 +2459,56 @@ async function readerAndFillHandle(searchInfos: SearchInformation[], list: HTMLE
  	return { finish: false };
  }
  
@@ -1972,7 +1910,7 @@ index 0000000..4c0b9df
 +	});
 +}
 diff --git a/packages/scripts/src/utils/work.ts b/packages/scripts/src/utils/work.ts
-index fce71af..1349913 100644
+index fce71af..4379a54 100644
 --- a/packages/scripts/src/utils/work.ts
 +++ b/packages/scripts/src/utils/work.ts
 @@ -8,11 +8,15 @@ import {
@@ -2115,7 +2053,7 @@ index fce71af..1349913 100644
  			// 将 AI 答案中的 [图片N] 占位符还原为对应图片 URL，使选项匹配可以命中图片选项。
  			// imageUrls 与实际上传的 env.images 严格同序（createImageSuggestion 单一数据源，含转换失败过滤）。
 diff --git a/scripts/build-core.js b/scripts/build-core.js
-index 2d2f0e9..c010601 100644
+index 2d2f0e9..63562bd 100644
 --- a/scripts/build-core.js
 +++ b/scripts/build-core.js
 @@ -49,17 +49,18 @@ async function createUserJs() {
