@@ -125,6 +125,35 @@ def scan_frame(frame, depth: int) -> dict:
     return info
 
 
+# [H1/H3] 翻页入口候选：用于校正图片阅读 / 文档 PDF 的翻阅入口（目前是启发式，需实测证据）
+PAGER_HINTS = ["next", "prev", "page", "pager", "arrow", "flip", "turn", "swiper", "book"]
+
+
+def scan_pagers(frame):
+    return frame.evaluate(
+        """(hints) => {
+          const out = [];
+          document.querySelectorAll('*').forEach(el => {
+            const cls = (el.className || '').toString();
+            const id = el.id || '';
+            const sig = (cls + ' ' + id).toLowerCase();
+            if (!sig.trim()) return;
+            if (!hints.some(h => sig.indexOf(h) >= 0)) return;
+            if (el.children.length > 2) return;
+            const r = el.getBoundingClientRect();
+            out.push({
+              tag: el.tagName, cls: cls.slice(0, 60), id: id.slice(0, 40),
+              text: (el.innerText || '').trim().replace(/\\s+/g, ' ').slice(0, 30),
+              visible: !!(el.offsetWidth || el.offsetHeight),
+              w: Math.round(r.width), h: Math.round(r.height)
+            });
+          });
+          return out.slice(0, 80);
+        }""",
+        PAGER_HINTS,
+    )
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--list", action="store_true", help="只列页面与 frame 清单")
@@ -269,6 +298,26 @@ def main() -> None:
         except Exception:
             pass
 
+        # [H1/H3] 抓翻页器候选（图片阅读 / 文档 PDF 的翻阅入口）
+        print("\n=== 翻页入口候选（H1/H3 校正用）===")
+        pager_report = {}
+        for f in target.frames:
+            try:
+                cands = scan_pagers(f)
+            except Exception:
+                continue
+            vis = [c for c in cands if c.get("visible")]
+            if vis:
+                pager_report[f.url[:120]] = vis
+                print(f"\n  ── frame {f.url[:100]}")
+                for c in vis[:25]:
+                    print(
+                        f"     <{c['tag']}> .{c['cls'][:34]:<36} #{c['id'][:18]:<20} "
+                        f"{c['w']}x{c['h']} {c['text'][:24]}"
+                    )
+        if not pager_report:
+            print("  (未找到可见的翻页候选)")
+
         report = {
             "observed_url": target.url,
             "screenshot": str(shot) if shot_ok else None,
@@ -276,7 +325,7 @@ def main() -> None:
             "course_links": course_links,
             "frames": frames_report,
             "attachments": att,
-            "font_face_snippets": font_global,
+            "pagers": pager_report,
             "note": "本次为只读观测，未点击任何完成任务点的元素，未提交任何数据。",
         }
         out = Path(args.out) if args.out else (LOGS / f"observe-{int(time.time())}.json")

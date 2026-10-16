@@ -778,7 +778,7 @@ index aadb3d9..8dd0fa8 100644
  
  						return workOptions;
 diff --git a/packages/scripts/src/projects/cx.ts b/packages/scripts/src/projects/cx.ts
-index da82b2b..14b634d 100644
+index da82b2b..0a5ca6d 100644
 --- a/packages/scripts/src/projects/cx.ts
 +++ b/packages/scripts/src/projects/cx.ts
 @@ -9,13 +9,17 @@ import {
@@ -820,7 +820,7 @@ index da82b2b..14b634d 100644
  
  type Attachment = {
  	/** 只有当 module 为 音视频（并且已经播放完成）时才会有这个属性 */
-@@ -224,20 +230,34 @@ export const CXProject = Project.create({
+@@ -224,20 +230,45 @@ export const CXProject = Project.create({
  						['⚠️目前超星倍速风控严重，如果高倍速', '被平台清空进度，请调到1-2倍速学习！']
  					]).outerHTML
  				},
@@ -840,6 +840,17 @@ index da82b2b..14b634d 100644
 +					// 若写成字面量对象会让 cfg.playbackRate 收窄为 string，破坏 study() 的 number 形参
 +				} as any,
  				volume: volume,
++				// [cxstudy M9] 图片阅读：上游直接调 finishJob() 标记完成（属“不做而标记完成”）。
++				// 本项目默认不这样做，提供显式开关作为阻塞时的兼底。
++				cxAllowFinishJob: {
++					label: '图片阅读允许 finishJob 兼底',
++					attrs: {
++						type: 'checkbox',
++						title:
++							'默认关闭。开启后，若真实翻阅未能让图片阅读任务点完成，则调页面自身的 finishJob() 直接标记完成（属违规的“秒过”行为，本项目硬约束 #2 默认禁止）。\n仅在图片阅读任务点长期卡住、且课程是闯关模式（会阻塞后续章节）时才建议开启。'
++					},
++					defaultValue: false
++				},
  				videoQuizStrategy: {
  					label: '视频内题目',
  					tag: 'select',
@@ -859,7 +870,7 @@ index da82b2b..14b634d 100644
  				},
  				mode: {
  					label: '跳转模式',
-@@ -352,7 +372,13 @@ export const CXProject = Project.create({
+@@ -352,7 +383,13 @@ export const CXProject = Project.create({
  				}
  			},
  			onrender({ panel }) {
@@ -874,7 +885,7 @@ index da82b2b..14b634d 100644
  					answerWrapperEmptyWarning(10);
  				}
  
-@@ -429,7 +455,7 @@ export const CXProject = Project.create({
+@@ -429,7 +466,7 @@ export const CXProject = Project.create({
  						// @ts-ignore
  						if (top.currentMedia) {
  							// @ts-ignore 倍速设置
@@ -883,7 +894,7 @@ index da82b2b..14b634d 100644
  							// @ts-ignore 音量设置
  							top.currentMedia.volume = this.cfg.volume;
  						}
-@@ -440,7 +466,7 @@ export const CXProject = Project.create({
+@@ -440,7 +477,7 @@ export const CXProject = Project.create({
  
  					await study({
  						...this.cfg,
@@ -892,7 +903,7 @@ index da82b2b..14b634d 100644
  					});
  				}
  			}
-@@ -460,6 +486,8 @@ export const CXProject = Project.create({
+@@ -460,6 +497,8 @@ export const CXProject = Project.create({
  				}
  
  				const isExam = /\/exam\/preview/.test(location.href);
@@ -901,7 +912,7 @@ index da82b2b..14b634d 100644
  				commonWork({
  					mount_script: this,
  					workerProvider: (opts) => workOrExam(isExam ? 'exam' : 'work', { ...opts, preview_mode: true })
-@@ -647,6 +675,7 @@ export const CXProject = Project.create({
+@@ -647,6 +686,7 @@ export const CXProject = Project.create({
  						duration: 0
  					});
  					const isExam = /\/exam\/test/.test(location.href);
@@ -909,7 +920,7 @@ index da82b2b..14b634d 100644
  					const workOptions = CommonProject.scripts.settings.methods.getWorkOptions();
  					BackgroundProject.scripts.render.methods.pin(this);
  					commonWork({
-@@ -664,15 +693,18 @@ export const CXProject = Project.create({
+@@ -664,15 +704,18 @@ export const CXProject = Project.create({
  		rateHack: new Script({
  			name: '屏蔽倍速限制',
  			hideInPanel: true,
@@ -931,7 +942,7 @@ index da82b2b..14b634d 100644
  			methods() {
  				return {
  					/** 解除输入框无法复制粘贴 */
-@@ -1685,7 +1717,9 @@ function searchJob(opts: typeof CXProject.scripts.study.cfg, searchedJobs: Job[]
+@@ -1685,7 +1728,9 @@ function searchJob(opts: typeof CXProject.scripts.study.cfg, searchedJobs: Job[]
  									}播放 : ` + jobName;
  								$message.info({ content: msg });
  								$console.log(msg);
@@ -942,7 +953,7 @@ index da82b2b..14b634d 100644
  							};
  						}
  					}
-@@ -1804,7 +1838,61 @@ export function fixedVideoProgress() {
+@@ -1804,7 +1849,61 @@ export function fixedVideoProgress() {
  /**
   * 任务点运行器
   */
@@ -1004,7 +1015,7 @@ index da82b2b..14b634d 100644
  	/**
  	 * 播放视频和音频
  	 */
-@@ -1814,7 +1902,9 @@ const JobRunner = {
+@@ -1814,7 +1913,9 @@ const JobRunner = {
  			volume: number;
  			videoQuizStrategy: VideoQuizStrategy;
  		},
@@ -1015,7 +1026,7 @@ index da82b2b..14b634d 100644
  	) {
  		const { playbackRate = 1, volume = 0 } = setting;
  
-@@ -1835,30 +1925,26 @@ const JobRunner = {
+@@ -1835,30 +1936,26 @@ const JobRunner = {
  		// 固定视频进度
  		fixedVideoProgress();
  
@@ -1060,7 +1071,7 @@ index da82b2b..14b634d 100644
  			};
  			loop();
  		}
-@@ -1905,7 +1991,9 @@ const JobRunner = {
+@@ -1905,7 +2002,9 @@ const JobRunner = {
  			media.volume = volume;
  
  			// 重置视频进度
@@ -1071,20 +1082,105 @@ index da82b2b..14b634d 100644
  
  			// 使用 setTimeout 解决 The play() request was interrupted by a call to pause() 问题
  			setTimeout(() => {
-@@ -1922,7 +2010,11 @@ const JobRunner = {
+@@ -1921,9 +2020,94 @@ const JobRunner = {
+ 	 * 阅读，PPT
  	 */
  	async read(win: Window & { finishJob?: Function }) {
- 		const finishJob = win.finishJob;
+-		const finishJob = win.finishJob;
 -		if (finishJob) finishJob();
-+		// [cxstudy M9] 上游直接调用页面自身的 finishJob() 标记任务点完成，等价于“不做而标记完成”。
-+		// 本项目硬约束 #2 不采用“秒过”，故不再调用它，改为依赖真实翻阅推进。
-+		// 若图片阅读任务点长期无法完成，说明翻阅入口需实测校正（见 PROJECT.md 风险清单）。
-+		$console.warn('[cxstudy M9] 已禁用 finishJob() 秒过：图片阅读任务点依赖真实翻阅。');
-+		void finishJob;
- 		await $.sleep(3000);
+-		await $.sleep(3000);
++		const doc = win.document;
++		// [cxstudy M9 修正] 上游直接调 finishJob() 标记任务点完成，属“不做而标记完成”（秒过）。
++		// 本项目硬约束 #2 不采用秒过 → 改为**真实翻阅**；翻阅后若仍未完成，
++		// 再按显式开关 cxAllowFinishJob（默认关）决定是否放行 finishJob。
++		//
++		// 【为何需要这个兼底】任务点若永不完成，在闯关模式下会阻塞整个章节，
++		// 比“秒过”的后果更严重（用户完全无法继续）。因此保留一个可控的逃生口。
++		$console.log('[cxstudy M9] 图片阅读任务点：开始真实翻阅（不调用 finishJob）。');
++
++		// 翻页入口候选（按优先级）：无实测 DOM 证据，因此把命中的选择器写进日志，便于校正
++		const PAGER_SELECTORS = [
++			'.nextBtn',
++			'.btnNext',
++			'#nextBtn',
++			'.nextPage',
++			'.next-page',
++			'.swiper-button-next',
++			'a[onclick*="next"]',
++			'a[onclick*="Next"]'
++		];
++
++		const signature = () =>
++			String(doc.body ? doc.body.innerHTML.length : 0) + ':' + String(doc.body ? doc.body.innerText.length : 0);
++
++		let pages = 0;
++		let usedSelector = '';
++		let lastSig = signature();
++		let stuck = 0;
++		const MAX_PAGES = 500;
++
++		for (let i = 0; i < MAX_PAGES; i++) {
++			let next: HTMLElement | null = null;
++			for (const sel of PAGER_SELECTORS) {
++				try {
++					const el = doc.querySelector<HTMLElement>(sel);
++					if (el && (el.offsetWidth || el.offsetHeight)) {
++						next = el;
++						usedSelector = sel;
++						break;
++					}
++				} catch (e) {
++					/* 忽略 */
++				}
++			}
++			if (!next) break;
++
++			try {
++				next.click();
++			} catch (e) {
++				$console.warn('[cxstudy M9] 翻页点击失败：' + (e as any)?.message);
++				break;
++			}
++			pages++;
++			await $.sleep(1200);
++
++			const sig = signature();
++			if (sig === lastSig) {
++				stuck++;
++				if (stuck >= 3) break;
++			} else {
++				stuck = 0;
++				lastSig = sig;
++			}
++		}
++
++		$console.log(
++			'[cxstudy M9] 翻阅结束：翻页 ' +
++				pages +
++				' 次' +
++				(usedSelector ? '（使用入口 ' + usedSelector + '）' : '（未找到任何翻页入口）')
++		);
++		await $.sleep(2000);
++
++		const allow = (CXProject.scripts.study.cfg as any).cxAllowFinishJob === true;
++		if (allow && typeof win.finishJob === 'function') {
++			$console.warn('[cxstudy M9] 已按开关放行 finishJob()：直接标记该图片阅读任务点完成（属违规的秒过行为）。');
++			try {
++				win.finishJob();
++			} catch (e) {
++				$console.warn('[cxstudy M9] finishJob 调用失败：' + (e as any)?.message);
++			}
++			await $.sleep(3000);
++		} else {
++			$console.warn(
++				'[cxstudy M9] 未放行 finishJob()。若该任务点仍未完成（闯关模式下会阴塞后续章节），' +
++					'请在「课程学习」开启「图片阅读允许 finishJob 兼底」。'
++			);
++		}
  	},
  	/**
-@@ -2131,48 +2223,12 @@ const JobRunner = {
+ 	 * 时间阅读
+@@ -2131,48 +2315,12 @@ const JobRunner = {
  					simplifyWorkResult(curr, chapterTestTaskQuestionTitleText, index)
  				);
  
@@ -1136,7 +1232,7 @@ index da82b2b..14b634d 100644
  				}
  			},
  			async onElementSearched(elements) {
-@@ -2232,6 +2288,26 @@ const JobRunner = {
+@@ -2232,6 +2380,26 @@ const JobRunner = {
  					// @ts-ignore 提交
  					frameWindow.btnBlueSubmit();
  
@@ -1163,7 +1259,7 @@ index da82b2b..14b634d 100644
  					await $.sleep(3000);
  					/** 确定按钮 */
  					// @ts-ignore 确定
-@@ -2351,6 +2427,56 @@ async function readerAndFillHandle(searchInfos: SearchInformation[], list: HTMLE
+@@ -2351,6 +2519,56 @@ async function readerAndFillHandle(searchInfos: SearchInformation[], list: HTMLE
  	return { finish: false };
  }
  
