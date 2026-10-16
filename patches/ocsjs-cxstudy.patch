@@ -11737,7 +11737,7 @@ index 74b7d18..0000000
 -	readNotes
 -};
 diff --git a/scripts/build-core.js b/scripts/build-core.js
-index 2d2f0e9..19f304f 100644
+index 2d2f0e9..6f1863d 100644
 --- a/scripts/build-core.js
 +++ b/scripts/build-core.js
 @@ -6,7 +6,7 @@ const util = require('util');
@@ -11801,7 +11801,7 @@ index 2d2f0e9..19f304f 100644
  					.flat()
  			)
  		);
-@@ -76,23 +96,23 @@ async function createUserJs() {
+@@ -76,23 +96,29 @@ async function createUserJs() {
  				gap: '\t'.repeat(4)
  			},
  			metadata: {
@@ -11828,6 +11828,12 @@ index 2d2f0e9..19f304f 100644
 -					// 智慧树阿里云资源，应用： 图片题资源访问
 -					'aliyuncs.com'],
 +				namespace: 'cxstudy',
++				// 发布仓库（供用户手动安装与油猴自动更新）
++				homepage: 'https://github.com/Zefyro-N/CXStudy',
++				source: 'https://github.com/Zefyro-N/CXStudy',
++				supportURL: 'https://github.com/Zefyro-N/CXStudy/issues',
++				updateURL: 'https://raw.githubusercontent.com/Zefyro-N/CXStudy/main/ocs.user.js',
++				downloadURL: 'https://raw.githubusercontent.com/Zefyro-N/CXStudy/main/ocs.user.js',
 +				connect: [
 +					// 字体解密参照表（cdn.ocsjs.com/resources/font/*.bin）
 +					'ocsjs.com',
@@ -11839,7 +11845,7 @@ index 2d2f0e9..19f304f 100644
  				match: matchMetadata,
  				grant: [
  					'GM_info',
-@@ -111,8 +131,7 @@ async function createUserJs() {
+@@ -111,8 +137,7 @@ async function createUserJs() {
  				],
  				require: [path.join(__dirname, distPath, 'index.js')],
  				resource: [`STYLE ${CSS_PATH}`],
@@ -11849,7 +11855,7 @@ index 2d2f0e9..19f304f 100644
  			},
  			entry: path.join(__dirname, '../packages/scripts/entry.js'),
  			dist: path.join(__dirname, distPath, 'ocs.user.js')
-@@ -122,8 +141,18 @@ async function createUserJs() {
+@@ -122,8 +147,18 @@ async function createUserJs() {
  	const officialOpts = createOptions();
  	console.log('CreateUserScript: ', officialOpts.metadata.name, officialOpts.dist);
  	await createUserScript(officialOpts);
@@ -11870,7 +11876,7 @@ index 2d2f0e9..19f304f 100644
  
  	/** 创建调试脚本 */
  	const devOpts = createOptions();
-@@ -141,18 +170,6 @@ async function createUserJs() {
+@@ -141,18 +176,6 @@ async function createUserJs() {
  	);
  	console.log('createUserScript: ', devOpts.metadata.name, devOpts.dist);
  	await createUserScript(devOpts);
