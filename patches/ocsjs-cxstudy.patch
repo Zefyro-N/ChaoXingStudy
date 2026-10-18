@@ -1310,7 +1310,7 @@ index c9f9c7a..1f7adf3 100644
  					.map((m) => {
  						const url = window.location.href;
 diff --git a/packages/scripts/src/projects/common.ts b/packages/scripts/src/projects/common.ts
-index aadb3d9..e0709f0 100644
+index aadb3d9..22121e2 100644
 --- a/packages/scripts/src/projects/common.ts
 +++ b/packages/scripts/src/projects/common.ts
 @@ -1,4 +1,5 @@
@@ -1450,7 +1450,7 @@ index aadb3d9..e0709f0 100644
  					defaultValue: [] as AnswererWrapper[]
  				},
  				/**
-@@ -215,576 +180,121 @@ export const CommonProject = Project.create({
+@@ -215,576 +180,123 @@ export const CommonProject = Project.create({
  					defaultValue: [] as string[]
  				},
  
@@ -1581,40 +1581,11 @@ index aadb3d9..e0709f0 100644
 +				},
 +				// 截图兜底：文本/图片 URL 都拿不到时，把题目区域渲染成图片
 +				cxScreenshot: {
-+					label: '截图兜底（题目渲染成图片给模型）',
++					label: '题干/选项取不到时截图给模型',
 +					attrs: {
 +						type: 'checkbox',
 +						title:
 +							'开启后：当题干文本为空、或题目图片转换失败时，把题目区域渲染成图片一并发给模型（需同时开启「允许图片题」）。\n已知限制：SVG 渲染不加载页面自定义字体，因此对「混淆字体」类题目可能仍然无效；复杂布局的还原是近似的。\n只在文本路径明显不够用时才截图，不做无条件截图。'
-+					},
-+					defaultValue: false
-+				},
-+				// ===== 作业/考试手动触发（默认关闭） =====
-+				cxWorkEnabled: {
-+					separator: '作业/考试自动作答（默认关闭）',
-+					label: '开启作业/考试自动作答',
-+					attrs: {
-+						type: 'checkbox',
-+						title:
-+							'默认关闭。开启后仍不会自动开始：进入作业/考试页面会先弹出预检结果与风险提示，必须由你手动点「开始作答」。'
-+					},
-+					defaultValue: false
-+				},
-+				cxWorkConsent: {
-+					label: '责任声明：我已了解风险由我自己承担',
-+					attrs: {
-+						type: 'checkbox',
-+						title:
-+							'勾选后方可启用作业/考试自动作答。你需要自行承担全部风险，包括但不限于：成绩判定、学术诚信处理（部分学校按作弊处理）、课程学习记录异常。'
-+					},
-+					defaultValue: false
-+				},
-+				cxExamEnabled: {
-+					label: '考试单独授权',
-+					attrs: {
-+						type: 'checkbox',
-+						title:
-+							'考试风险显著高于作业（多数学校按学术不端处理），因此需单独授权。未勾选时遇到考试页面会直接拒绝作答。\n人脸识别与人机验证码不会因授权而放行 —— 出现即停手，必须人工完成。'
 +					},
 +					defaultValue: false
 +				},
@@ -2127,13 +2098,44 @@ index aadb3d9..e0709f0 100644
 +						]);
  					}
  				},
++				// ===== 作业/考试手动触发（默认关闭） =====
++				cxWorkEnabled: {
++					separator: '作业/考试自动作答（默认关闭）',
++					label: '开启作业/考试自动作答',
++					attrs: {
++						type: 'checkbox',
++						title:
++							'默认关闭。开启后仍不会自动开始：进入作业/考试页面会先弹出预检结果与风险提示，必须由你手动点「开始作答」。'
++					},
++					defaultValue: false
++				},
++				cxWorkConsent: {
++					label: '责任声明：我已了解风险由我自己承担',
++					attrs: {
++						type: 'checkbox',
++						title:
++							'勾选后方可启用作业/考试自动作答。你需要自行承担全部风险，包括但不限于：成绩判定、学术诚信处理（部分学校按作弊处理）、课程学习记录异常。'
++					},
++					defaultValue: false
++				},
++				cxExamEnabled: {
++					label: '考试单独授权',
++					attrs: {
++						type: 'checkbox',
++						title:
++							'考试风险显著高于作业（多数学校按学术不端处理），因此需单独授权。未勾选时遇到考试页面会直接拒绝作答。\n人脸识别与人机验证码不会因授权而放行 —— 出现即停手，必须人工完成。'
++					},
++					defaultValue: false
++				},
  				upload: {
 -					label: '答案提交方式（提交率）',
++					elementClassName: 'config-details',
++					showIf: 'common.settings.advancedSettings',
 +					label: '章节测验提交阈值',
  					tag: 'select',
  					defaultValue: 80 as WorkUploadType,
  					options: [
-@@ -824,30 +334,6 @@ export const CommonProject = Project.create({
+@@ -824,30 +336,6 @@ export const CommonProject = Project.create({
  							'当章节测试左上角并没有黄色任务点的时候依然进行答题（没有任务点说明此作业可能不计入总成绩，如果老师要求则可以开启）'
  					}
  				},
@@ -2164,7 +2166,16 @@ index aadb3d9..e0709f0 100644
  				advancedSettings: {
  					...dropdownStyle,
  					defaultValue: false,
-@@ -875,16 +361,15 @@ export const CommonProject = Project.create({
+@@ -857,7 +345,7 @@ export const CommonProject = Project.create({
+ 				thread: {
+ 					showIf: 'common.settings.advancedSettings',
+ 					elementClassName: 'config-details',
+-					label: '线程数量（个）',
++					label: '并发题目数',
+ 					attrs: {
+ 						type: 'number',
+ 						min: 1,
+@@ -875,16 +363,15 @@ export const CommonProject = Project.create({
  					attrs: {
  						type: 'checkbox',
  						title:
@@ -2184,7 +2195,16 @@ index aadb3d9..e0709f0 100644
  					attrs: {
  						type: 'number',
  						min: 10,
-@@ -910,7 +395,7 @@ export const CommonProject = Project.create({
+@@ -897,7 +384,7 @@ export const CommonProject = Project.create({
+ 				stopSecondWhenFinish: {
+ 					showIf: 'common.settings.advancedSettings',
+ 					elementClassName: 'config-details',
+-					label: '答题结束后暂停（秒）',
++					label: '交卷前停留（秒）',
+ 					attrs: {
+ 						type: 'number',
+ 						min: 3,
+@@ -910,7 +397,7 @@ export const CommonProject = Project.create({
  				period: {
  					showIf: 'common.settings.advancedSettings',
  					elementClassName: 'config-details',
@@ -2193,16 +2213,27 @@ index aadb3d9..e0709f0 100644
  					attrs: {
  						type: 'number',
  						min: 1,
-@@ -996,7 +481,7 @@ export const CommonProject = Project.create({
+@@ -973,6 +460,8 @@ export const CommonProject = Project.create({
+ 					}
+ 				},
+ 				notification: {
++					elementClassName: 'config-details',
++					showIf: 'common.settings.advancedSettings',
+ 					separator: '其他设置',
+ 					label: '系统通知',
+ 					attrs: {
+@@ -996,7 +485,9 @@ export const CommonProject = Project.create({
  					]
  				},
  				enableQuestionCaches: {
 -					label: '题库缓存功能',
++					elementClassName: 'config-details',
++					showIf: 'common.settings.advancedSettings',
 +					label: '答题缓存（同一题不重复请求模型）',
  					defaultValue: true,
  					attrs: { type: 'checkbox' },
  					suffixSlot: function () {
-@@ -1020,8 +505,14 @@ export const CommonProject = Project.create({
+@@ -1020,8 +511,14 @@ export const CommonProject = Project.create({
  						/**
  						 * 过滤掉被禁用的题库
  						 */
@@ -2219,7 +2250,7 @@ index aadb3d9..e0709f0 100644
  						);
  
  						return workOptions;
-@@ -1092,9 +583,7 @@ export const CommonProject = Project.create({
+@@ -1092,9 +589,7 @@ export const CommonProject = Project.create({
  							content: h('div', [
  								'当前题库配置暂不支持图片、公式等题目处理',
  								h('br'),
@@ -2230,7 +2261,7 @@ index aadb3d9..e0709f0 100644
  							]),
  							duration: 0,
  							onClose: () => {
-@@ -1121,14 +610,18 @@ export const CommonProject = Project.create({
+@@ -1121,14 +616,18 @@ export const CommonProject = Project.create({
  			namespace: 'common.work-results',
  			configs: {
  				notes: {
@@ -2251,7 +2282,7 @@ index aadb3d9..e0709f0 100644
  				 * 动态答题器不会自动清空搜索结果，因此需要显示手动清空按钮
  				 */
  				dynamicResults: {
-@@ -1386,7 +879,10 @@ export const CommonProject = Project.create({
+@@ -1386,7 +885,10 @@ export const CommonProject = Project.create({
  									h(SearchInfosElement, {
  										infos: result.searchInfos,
  										question: result.question,
@@ -2263,16 +2294,123 @@ index aadb3d9..e0709f0 100644
  									})
  								]);
  							} else {
-@@ -1435,7 +931,7 @@ export const CommonProject = Project.create({
- 			namespace: 'common.online-search',
- 			configs: {
- 				notes: {
+@@ -1429,115 +931,6 @@ export const CommonProject = Project.create({
+ 			'work-state-change': (state: 'done' | 'start' | 'stop' | 'close') => void;
+ 			'work-current-result-change': (cur: SimplifyWorkResult) => void;
+ 		}>(),
+-		onlineSearch: new Script({
+-			name: '🌐 在线搜题',
+-			matches: [['所有页面', /.*/]],
+-			namespace: 'common.online-search',
+-			configs: {
+-				notes: {
 -					defaultValue: '查题前请在 “通用-全局设置” 中设置题库配置，才能进行在线搜题。'
-+					defaultValue: '划词搜索会使用当前配置的模型作答。'
- 				},
- 
- 				selectSearch: {
-@@ -1604,112 +1100,6 @@ function insertCopyableStyle() {
+-				},
+-
+-				selectSearch: {
+-					label: '划词搜索',
+-					defaultValue: true,
+-					attrs: { type: 'checkbox', title: '使用鼠标滑动选择页面中的题目进行搜索。' }
+-				},
+-				searchValue: {
+-					sync: true,
+-					label: '搜索题目',
+-					tag: 'textarea',
+-					attrs: {
+-						placeholder: '输入题目，请尽量保证题目完整，不要漏字',
+-						style: {
+-							minWidth: '300px',
+-							minHeight: '64px'
+-						}
+-					},
+-					defaultValue: ''
+-				}
+-			},
+-			oncomplete() {
+-				document.addEventListener(
+-					'selectionchange',
+-					debounce(() => {
+-						if (this.cfg.selectSearch) {
+-							const val = document.getSelection()?.toString() || '';
+-							if (val) {
+-								this.cfg.searchValue = val;
+-							}
+-						}
+-					}, 500)
+-				);
+-			},
+-			onrender({ panel }) {
+-				const content = h('div', '', (content) => {
+-					content.style.marginBottom = '12px';
+-				});
+-
+-				const search = async (value: string) => {
+-					if (CommonProject.scripts.settings.cfg.answererWrappers.length === 0) {
+-						$modal.alert({ content: '请先在 通用-全局设置 配置题库，才能进行在线搜题。' });
+-						return;
+-					}
+-
+-					content.replaceChildren(h('span', '搜索中...'));
+-
+-					if (value) {
+-						const t = Date.now();
+-						const { env } = await buildAnswererEnv({
+-							title: value,
+-							enableImageOptimize: CommonProject.scripts.settings.cfg.imageOptimize
+-						});
+-						const infos = await defaultAnswerWrapperHandler(CommonProject.scripts.settings.cfg.answererWrappers, env);
+-						// 耗时计算
+-						const resume = ((Date.now() - t) / 1000).toFixed(2);
+-
+-						content.replaceChildren(
+-							h(
+-								'div',
+-								[
+-									h('hr'),
+-									h(
+-										'div',
+-										{ style: { color: '#a1a1a1' } },
+-										`搜索到 ${infos.map((i) => i.results).flat().length} 个结果，共耗时 ${resume} 秒`
+-									),
+-									h(SearchInfosElement, {
+-										infos: infos.map((info) => ({
+-											results: info.results.map(
+-												(res) => [res.question, res.answer, res.extra_data] as [string, string, object]
+-											),
+-											homepage: info.homepage,
+-											name: info.name,
+-											error: info.error
+-										})),
+-										question: value
+-									})
+-								],
+-								(div) => {
+-									div.classList.add('card');
+-									div.style.width = '480px';
+-								}
+-							)
+-						);
+-					} else {
+-						content.replaceChildren(h('span', '题目不能为空！'));
+-					}
+-				};
+-
+-				const button = h('button', '搜索', (button) => {
+-					button.className = 'base-style-button';
+-					button.style.width = '120px';
+-					button.onclick = () => {
+-						search(this.cfg.searchValue);
+-					};
+-				});
+-				const searchContainer = h('div', { style: { textAlign: 'end' } }, [button]);
+-
+-				panel.body.append(h('div', [content, searchContainer]));
+-			}
+-		}),
+ 		edgeMinimize: new Script({
+ 			name: '边缘最小化图标模式',
+ 			matches: [['所有页面', /.*/]],
+@@ -1604,112 +997,6 @@ function insertCopyableStyle() {
  	document.head.append(style);
  }
  
@@ -2385,7 +2523,7 @@ index aadb3d9..e0709f0 100644
  
  /** 按题型区分"答案无法作答"的提示文案 */
  const typeMismatchTexts: Record<string, string> = {
-@@ -1725,22 +1115,12 @@ function createSearchResultAlertElement(result: SimplifyWorkResult) {
+@@ -1725,22 +1012,12 @@ function createSearchResultAlertElement(result: SimplifyWorkResult) {
  	if (result.requested === false && result.resolved === false) {
  		info = h('div', { className: 'result-info unresolved' }, '等待搜索中... 🔍');
  	} else if (err) {
@@ -2410,7 +2548,7 @@ index aadb3d9..e0709f0 100644
  		info = h('div', { className: 'result-info no-answer' }, '❌ 题库没搜索到答案');
  	} else {
 diff --git a/packages/scripts/src/projects/cx.ts b/packages/scripts/src/projects/cx.ts
-index da82b2b..513aede 100644
+index da82b2b..b615cd5 100644
 --- a/packages/scripts/src/projects/cx.ts
 +++ b/packages/scripts/src/projects/cx.ts
 @@ -9,13 +9,20 @@ import {
@@ -2490,7 +2628,7 @@ index da82b2b..513aede 100644
  
  type Attachment = {
  	/** 只有当 module 为 音视频（并且已经播放完成）时才会有这个属性 */
-@@ -219,25 +232,38 @@ export const CXProject = Project.create({
+@@ -219,25 +232,42 @@ export const CXProject = Project.create({
  				notes: {
  					defaultValue: $ui.notes([
  						['任务点不是顺序执行，如果某一个任务没有动', '请查看是否有其他任务正在学习，耐心等待即可。'],
@@ -2506,7 +2644,9 @@ index da82b2b..513aede 100644
 +				// 图片阅读/文档：阅读器在跳域 iframe 内无法真实翻阅，
 +				// finishJob() 是该类型唯一可行的完成机制（详见 PROJECT.md §14）。默认开启。
 +				cxAllowFinishJob: {
-+					label: '图片阅读/文档 允许 finishJob（默认开）',
++					elementClassName: 'config-details',
++					showIf: 'cx.new.study.enables',
++					label: '文档/图片阅读自动完成',
 +					attrs: {
 +						type: 'checkbox',
 +						title:
@@ -2515,6 +2655,8 @@ index da82b2b..513aede 100644
 +					defaultValue: true
 +				},
  				videoQuizStrategy: {
++					elementClassName: 'config-details',
++					showIf: 'cx.new.study.enables',
  					label: '视频内题目',
  					tag: 'select',
  					options: [
@@ -2536,7 +2678,33 @@ index da82b2b..513aede 100644
  				},
  				mode: {
  					label: '跳转模式',
-@@ -291,17 +317,6 @@ export const CXProject = Project.create({
+@@ -263,7 +293,7 @@ export const CXProject = Project.create({
+ 				autoJumpToUnFinishJob: {
+ 					elementClassName: 'config-details',
+ 					showIf: 'cx.new.study.enables',
+-					label: '自动前往首个任务点',
++					label: '进页面自动跳到第一个未完成点',
+ 					attrs: {
+ 						type: 'checkbox',
+ 						title:
+@@ -274,7 +304,7 @@ export const CXProject = Project.create({
+ 				forceLearn: {
+ 					elementClassName: 'config-details',
+ 					showIf: 'cx.new.study.enables',
+-					label: '强制学习',
++					label: '未完成任务点也学习',
+ 					attrs: {
+ 						title: '视频一般分为：非任务点、任务点、和已完成任务点，当遇到“非任务点”时需要开启此选项才会进行学习',
+ 						type: 'checkbox'
+@@ -284,24 +314,13 @@ export const CXProject = Project.create({
+ 				backToFirstWhenFinish: {
+ 					elementClassName: 'config-details',
+ 					showIf: 'cx.new.study.enables',
+-					label: '完成全部后重新学习',
++					label: '全部完成后从头复习',
+ 					attrs: {
+ 						type: 'checkbox',
+ 						title: '当章节已经学习完成至最后一章时，跳转到第一个章节重新开始学习。'
  					},
  					defaultValue: false
  				},
@@ -2554,7 +2722,7 @@ index da82b2b..513aede 100644
  				notifyWhenHasFaceRecognition: {
  					elementClassName: 'config-details',
  					showIf: 'cx.new.study.enables',
-@@ -343,6 +358,19 @@ export const CXProject = Project.create({
+@@ -343,6 +362,19 @@ export const CXProject = Project.create({
  					attrs: { type: 'checkbox', title: '开启：章节测试自动答题' },
  					defaultValue: true
  				},
@@ -2574,7 +2742,7 @@ index da82b2b..513aede 100644
  				enableHyperlink: {
  					elementClassName: 'config-details',
  					showIf: 'cx.new.study.enables',
-@@ -352,23 +380,16 @@ export const CXProject = Project.create({
+@@ -352,23 +384,16 @@ export const CXProject = Project.create({
  				}
  			},
  			onrender({ panel }) {
@@ -2605,7 +2773,7 @@ index da82b2b..513aede 100644
  			},
  			// 这里不使用 oncompelete ，如果某个资源一直在加载中，就会导致 oncomplete 一直无法触发，导致脚本无法运行，所以改为 onactive 只要匹配上就会触发
  			async onactive() {
-@@ -429,19 +450,15 @@ export const CXProject = Project.create({
+@@ -429,19 +454,15 @@ export const CXProject = Project.create({
  						// @ts-ignore
  						if (top.currentMedia) {
  							// @ts-ignore 倍速设置
@@ -2627,7 +2795,7 @@ index da82b2b..513aede 100644
  				}
  			}
  		}),
-@@ -455,11 +472,18 @@ export const CXProject = Project.create({
+@@ -455,11 +476,18 @@ export const CXProject = Project.create({
  			namespace: 'cx.new.work',
  			configs: { notes: workNotes },
  			async oncomplete() {
@@ -2646,7 +2814,7 @@ index da82b2b..513aede 100644
  				commonWork({
  					mount_script: this,
  					workerProvider: (opts) => workOrExam(isExam ? 'exam' : 'work', { ...opts, preview_mode: true })
-@@ -511,6 +535,11 @@ export const CXProject = Project.create({
+@@ -511,6 +539,11 @@ export const CXProject = Project.create({
  				}
  			},
  			oncomplete() {
@@ -2658,7 +2826,7 @@ index da82b2b..513aede 100644
  				// 置顶
  				BackgroundProject.scripts.render.methods.pin(this);
  				$message.info('请手动点击任意章节开始自动阅读');
-@@ -592,7 +621,7 @@ export const CXProject = Project.create({
+@@ -592,7 +625,7 @@ export const CXProject = Project.create({
  				if (top === window) {
  					$message.warn({
  						content:
@@ -2667,7 +2835,7 @@ index da82b2b..513aede 100644
  						duration: 0
  					});
  					// 跳转到最新版本的超星
-@@ -647,6 +676,7 @@ export const CXProject = Project.create({
+@@ -647,6 +680,7 @@ export const CXProject = Project.create({
  						duration: 0
  					});
  					const isExam = /\/exam\/test/.test(location.href);
@@ -2675,7 +2843,7 @@ index da82b2b..513aede 100644
  					const workOptions = CommonProject.scripts.settings.methods.getWorkOptions();
  					BackgroundProject.scripts.render.methods.pin(this);
  					commonWork({
-@@ -661,83 +691,17 @@ export const CXProject = Project.create({
+@@ -661,83 +695,17 @@ export const CXProject = Project.create({
  				setTimeout(() => $gm.unsafeWindow.topreview(), 3000);
  			}
  		}),
@@ -2764,7 +2932,7 @@ index da82b2b..513aede 100644
  				let chapters = await CXAnalyses.waitForChapterInfos();
  
  				const params = new URLSearchParams(window.location.href);
-@@ -782,7 +746,9 @@ export const CXProject = Project.create({
+@@ -782,7 +750,9 @@ export const CXProject = Project.create({
  				['作业', '/mooc2/work/dowork']
  			],
  			async oncomplete() {
@@ -2775,7 +2943,7 @@ index da82b2b..513aede 100644
  			}
  		}),
  		// 积分课提示
-@@ -886,6 +852,8 @@ function workOrExam(
+@@ -886,6 +856,8 @@ function workOrExam(
  						  ].join(','),
  					root
  				).filter((e) => !!e.textContent?.trim()),
@@ -2784,7 +2952,7 @@ index da82b2b..513aede 100644
  			options: '.answerBg .answer_p, .textDIV, .eidtDiv',
  			type: type === 'exam' ? 'input[name^="type"]' : 'input[id^="answertype"]',
  			lineAnswerInput: '.line_answer input[name^=answer]',
-@@ -1184,6 +1152,56 @@ function mobilelearn(opts: CommonWorkOptions) {
+@@ -1184,6 +1156,56 @@ function mobilelearn(opts: CommonWorkOptions) {
   * @see 算法详解见 utils/font-decrypt/bitmap.ts 文件头注释
   * @see 参考 https://bbs.tampermonkey.net.cn/thread-2303-1-1.html
   */
@@ -2841,7 +3009,7 @@ index da82b2b..513aede 100644
  async function mappingRecognize(doc: Document = document) {
  	// 从 @font-face 的 data URI 中提取加密字体
  	const fontBuffer = extractFontFromStyle(doc, 'font-cxsecret');
-@@ -1332,93 +1350,6 @@ const CXAnalyses = {
+@@ -1332,93 +1354,6 @@ const CXAnalyses = {
  	}
  };
  
@@ -2935,7 +3103,7 @@ index da82b2b..513aede 100644
  
  /**
   * cx 任务学习
-@@ -1444,6 +1375,11 @@ export async function study(opts: typeof CXProject.scripts.study.cfg) {
+@@ -1444,6 +1379,11 @@ export async function study(opts: typeof CXProject.scripts.study.cfg) {
  	 * 如果10秒内既没有任务点，也暂停了搜索，则当前则没有任务点
  	 */
  	const runJobs = async () => {
@@ -2947,7 +3115,7 @@ index da82b2b..513aede 100644
  		const job = searchJob(opts, searchedJobs);
  		// 如果存在任务点
  		if (job && job.func) {
-@@ -1685,7 +1621,9 @@ function searchJob(opts: typeof CXProject.scripts.study.cfg, searchedJobs: Job[]
+@@ -1685,7 +1625,9 @@ function searchJob(opts: typeof CXProject.scripts.study.cfg, searchedJobs: Job[]
  									}播放 : ` + jobName;
  								$message.info({ content: msg });
  								$console.log(msg);
@@ -2958,7 +3126,7 @@ index da82b2b..513aede 100644
  							};
  						}
  					}
-@@ -1804,19 +1742,137 @@ export function fixedVideoProgress() {
+@@ -1804,19 +1746,137 @@ export function fixedVideoProgress() {
  /**
   * 任务点运行器
   */
@@ -3099,7 +3267,7 @@ index da82b2b..513aede 100644
  
  		const media = await waitForMedia({ root: doc });
  
-@@ -1835,32 +1891,54 @@ const JobRunner = {
+@@ -1835,32 +1895,54 @@ const JobRunner = {
  		// 固定视频进度
  		fixedVideoProgress();
  
@@ -3175,7 +3343,7 @@ index da82b2b..513aede 100644
  		}
  
  		/**
-@@ -1904,8 +1982,8 @@ const JobRunner = {
+@@ -1904,8 +1986,8 @@ const JobRunner = {
  			$console.log('视频开始播放');
  			media.volume = volume;
  
@@ -3186,7 +3354,7 @@ index da82b2b..513aede 100644
  
  			// 使用 setTimeout 解决 The play() request was interrupted by a call to pause() 问题
  			setTimeout(() => {
-@@ -1921,8 +1999,33 @@ const JobRunner = {
+@@ -1921,8 +2003,33 @@ const JobRunner = {
  	 * 阅读，PPT
  	 */
  	async read(win: Window & { finishJob?: Function }) {
@@ -3222,7 +3390,7 @@ index da82b2b..513aede 100644
  		await $.sleep(3000);
  	},
  	/**
-@@ -1960,6 +2063,16 @@ const JobRunner = {
+@@ -1960,6 +2067,16 @@ const JobRunner = {
  			return answerWrapperEmptyWarning(0);
  		}
  
@@ -3239,7 +3407,7 @@ index da82b2b..513aede 100644
  		// 章节测试未使用 commonWork，这里手动触发状态更新
  		CommonEvents.emitWorkerStateChange('start');
  
-@@ -2016,13 +2129,17 @@ const JobRunner = {
+@@ -2016,13 +2133,17 @@ const JobRunner = {
  					(root) => $el('.secondUlList', root)
  				],
  				/**
@@ -3262,7 +3430,7 @@ index da82b2b..513aede 100644
  				type: 'input[id^="answertype"]',
  				lineSelectBox: '.thirdUlList .dept_select'
  			},
-@@ -2030,7 +2147,14 @@ const JobRunner = {
+@@ -2030,7 +2151,14 @@ const JobRunner = {
  			answerSeparators: answerSeparators.split(',').map((s) => s.trim()),
  			/** 默认搜题方法构造器 */
  			answerer: createCommonAnswerer({
@@ -3278,7 +3446,7 @@ index da82b2b..513aede 100644
  				optionsTransform: (elements, ctx) => {
  					const typeInput = elements.type?.[0] as HTMLInputElement;
  					const type = (typeInput ? getQuestionType(parseInt(typeInput.value)) : undefined) || 'unknown';
-@@ -2064,14 +2188,19 @@ const JobRunner = {
+@@ -2064,14 +2192,19 @@ const JobRunner = {
  								option?.click();
  							}
  						} else if (type === 'completion' && answer.trim()) {
@@ -3298,7 +3466,7 @@ index da82b2b..513aede 100644
  							if (option?.parentElement?.parentElement) {
  								/** 如果存在保存按钮则点击 */
  								$el('[onclick*=saveQuestion]', option.parentElement.parentElement)?.click();
-@@ -2131,47 +2260,57 @@ const JobRunner = {
+@@ -2131,47 +2264,57 @@ const JobRunner = {
  					simplifyWorkResult(curr, chapterTestTaskQuestionTitleText, index)
  				);
  
@@ -3390,7 +3558,7 @@ index da82b2b..513aede 100644
  					}
  				}
  			},
-@@ -2232,6 +2371,26 @@ const JobRunner = {
+@@ -2232,6 +2375,26 @@ const JobRunner = {
  					// @ts-ignore 提交
  					frameWindow.btnBlueSubmit();
  
@@ -3417,7 +3585,7 @@ index da82b2b..513aede 100644
  					await $.sleep(3000);
  					/** 确定按钮 */
  					// @ts-ignore 确定
-@@ -2351,6 +2510,56 @@ async function readerAndFillHandle(searchInfos: SearchInformation[], list: HTMLE
+@@ -2351,6 +2514,56 @@ async function readerAndFillHandle(searchInfos: SearchInformation[], list: HTMLE
  	return { finish: false };
  }
  
