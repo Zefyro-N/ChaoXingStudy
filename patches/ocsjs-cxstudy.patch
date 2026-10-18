@@ -1320,7 +1320,7 @@ index c9f9c7a..1f7adf3 100644
  					.map((m) => {
  						const url = window.location.href;
 diff --git a/packages/scripts/src/projects/common.ts b/packages/scripts/src/projects/common.ts
-index aadb3d9..c0feaba 100644
+index aadb3d9..9523f68 100644
 --- a/packages/scripts/src/projects/common.ts
 +++ b/packages/scripts/src/projects/common.ts
 @@ -1,4 +1,5 @@
@@ -1632,10 +1632,7 @@ index aadb3d9..c0feaba 100644
 -												awsResult.length +
 -												'个题库，请删除一些不必要的题库后重新配置！'
 -										])
-+										title: '⛔ 模型连接失败',
-+										content: $ui.notes([res.message, '请检查 Key 是否正确、是否有该模型权限、网络是否可达。']),
-+										confirmButtonText: '知道了'
- 									});
+-									});
 -									return false;
 -								}
 -
@@ -1671,8 +1668,11 @@ index aadb3d9..c0feaba 100644
 -													cancelButtonText: '稍后刷新'
 -											  }
 -											: {})
--									});
--								}
++										title: '⛔ 模型连接失败',
++										content: $ui.notes([res.message, '请检查 Key 是否正确、是否有该模型权限、网络是否可达。']),
++										confirmButtonText: '知道了'
+ 									});
+ 								}
 -
 -								// 格式化文本
 -								textarea.value = JSON.stringify(awsResult, null, 4);
@@ -2074,7 +2074,7 @@ index aadb3d9..c0feaba 100644
 -									if (remote === false) {
 -										renderAnswererList();
 -									}
- 								}
+-								}
 -							);
 -							if (modal) {
 -								const originalRemove = modal.remove.bind(modal);
@@ -2429,7 +2429,7 @@ index aadb3d9..c0feaba 100644
  		edgeMinimize: new Script({
  			name: '边缘最小化图标模式',
  			matches: [['所有页面', /.*/]],
-@@ -1604,114 +999,169 @@ function insertCopyableStyle() {
+@@ -1604,114 +999,213 @@ function insertCopyableStyle() {
  	document.head.append(style);
  }
  
@@ -2585,13 +2585,34 @@ index aadb3d9..c0feaba 100644
 + * 面板会随搜索结果频繁重渲染（框架可能重置尺寸），因此每次都重新应用保存的尺寸。
 + * 全部包在 try/catch 内：找不到窗口元素时静默跳过，不影响面板本身。
 + */
-+function enablePanelResizable(panel: any) {
++/**
++ * 把缩放诊断显示在面板里（临时诊断用）。
++ *
++ * 面板在 closed shadow root 内，控制台信息用户不易取到；
++ * 直接显示在界面上，用户截图即可完成取证。
++ */
++function showScaleDiag(container: HTMLElement, text: string) {
 +	try {
-+		const body = panel && panel.body ? (panel.body as HTMLElement) : undefined;
-+		if (!body) {
-+			console.warn('[CXStudy 缩放] panel.body 不存在，无法挂载拖拽柄');
-+			return;
-+		}
++		const el = h('div', {
++			style: {
++				margin: '6px 0',
++				padding: '6px 8px',
++				fontSize: '12px',
++				lineHeight: '1.5',
++				color: '#555',
++				background: '#fffbe6',
++				border: '1px dashed #d4a017',
++				borderRadius: '4px',
++				whiteSpace: 'pre-wrap',
++				wordBreak: 'break-all'
++			}
++		});
++		el.textContent = text;
++		container.appendChild(el);
++	} catch {
++		// 诊断显示失败不影响功能
++	}
++}
  
 -			h(
 -				'div',
@@ -2614,6 +2635,14 @@ index aadb3d9..c0feaba 100644
 -		])
 -	]);
 -};
++function enablePanelResizable(panel: any) {
++	try {
++		const body = panel && panel.body ? (panel.body as HTMLElement) : undefined;
++		if (!body) {
++			console.warn('[CXStudy 缩放] panel.body 不存在，无法挂载拖拽柄');
++			return;
++		}
++
 +		const chain = collectPanelChain(body);
 +		const describe = (el: HTMLElement) => {
 +			let pos = '?';
@@ -2635,12 +2664,27 @@ index aadb3d9..c0feaba 100644
 +		const win = findPanelWindow(body);
 +		if (!win) {
 +			console.warn('[CXStudy 缩放] 未找到可作为窗口的元素，已跳过（不影响面板功能）');
++			showScaleDiag(body, '[CXStudy 缩放诊断] 未找到可作为窗口的元素\n链条: ' + chain.map((el, i) => i + ':' + describe(el)).join(' > '));
 +			return;
 +		}
 +		if (!panelChainLogged2) {
 +			panelChainLogged2 = true;
 +			console.info('[CXStudy 缩放] 拖拽柄目标 = ' + describe(win) + '；该元素是面板内容容器本身吗？ ' + (win === body));
 +		}
++		// 界面内显示结论：控制台信息用户不易取到，显示在面板上便于截图取证
++		showScaleDiag(
++			body,
++			'[CXStudy 缩放诊断]\n链条: ' +
++				chain.map((el, i) => i + ':' + describe(el)).join(' > ') +
++				'\n拖拽柄目标: ' +
++				describe(win) +
++				'（是否就是内容容器: ' +
++				String(win === body) +
++				'）\n窗口尺寸: ' +
++				Math.round(win.getBoundingClientRect().width) +
++				'x' +
++				Math.round(win.getBoundingClientRect().height)
++		);
 +
 +		if (panelSize.width) {
 +			win.style.width = panelSize.width + 'px';
@@ -2699,7 +2743,7 @@ index aadb3d9..c0feaba 100644
  const typeMismatchTexts: Record<string, string> = {
  	single: '⚠️ 给出的答案和选项不匹配，可能是题库答案错误',
  	multiple: '⚠️ 给出的答案和选项不匹配，可能是题库答案错误',
-@@ -1725,22 +1175,12 @@ function createSearchResultAlertElement(result: SimplifyWorkResult) {
+@@ -1725,22 +1219,12 @@ function createSearchResultAlertElement(result: SimplifyWorkResult) {
  	if (result.requested === false && result.resolved === false) {
  		info = h('div', { className: 'result-info unresolved' }, '等待搜索中... 🔍');
  	} else if (err) {
