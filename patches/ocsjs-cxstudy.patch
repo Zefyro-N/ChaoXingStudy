@@ -523,7 +523,7 @@ index 7bc949f..0000000
 -	});
 -})();
 diff --git a/packages/scripts/entry.dev.js b/packages/scripts/entry.dev.js
-index b79d78f..31594fa 100644
+index b79d78f..240cfe7 100644
 --- a/packages/scripts/entry.dev.js
 +++ b/packages/scripts/entry.dev.js
 @@ -18,14 +18,10 @@ if (
@@ -544,19 +544,21 @@ index b79d78f..31594fa 100644
  	return;
  }
  
-@@ -46,8 +42,7 @@ const infos = GM_info;
+@@ -45,9 +41,8 @@ const infos = GM_info;
+ 		renderConfig: {
  			renderScript: RenderScript,
  			styles: [GM_getResourceText('STYLE')],
- 			defaultPanelName: CommonProject.scripts.guide.namespace,
+-			defaultPanelName: CommonProject.scripts.guide.namespace,
 -			title: `${logoSvg} OCS <span style="font-size: 12px; color: #969696;">DEV v${infos.script.version}</span>`
 -		},
 -		updatePage: 'https://docs.ocsjs.com/docs/update'
++			defaultPanelName: CommonProject.scripts.settings.namespace,
 +			title: `${logoSvg} CXStudy 超星助手 <span style="font-size: 12px; color: #969696;">DEV v${infos.script.version}</span>`
 +		}
  	});
  })();
 diff --git a/packages/scripts/entry.js b/packages/scripts/entry.js
-index ee6c24d..c010a97 100644
+index ee6c24d..1d1ccf2 100644
 --- a/packages/scripts/entry.js
 +++ b/packages/scripts/entry.js
 @@ -18,14 +18,10 @@ if (
@@ -577,13 +579,15 @@ index ee6c24d..c010a97 100644
  	return;
  }
  
-@@ -45,8 +41,7 @@ const infos = GM_info;
+@@ -44,9 +40,8 @@ const infos = GM_info;
+ 		renderConfig: {
  			renderScript: RenderScript,
  			styles: [STYLE],
- 			defaultPanelName: CommonProject.scripts.guide.namespace,
+-			defaultPanelName: CommonProject.scripts.guide.namespace,
 -			title: `${logoSvg} OCS <span style="font-size: 12px; color: #969696;">v${infos.script.version}</span>`
 -		},
 -		updatePage: 'https://docs.ocsjs.com/docs/update'
++			defaultPanelName: CommonProject.scripts.settings.namespace,
 +			title: `${logoSvg} CXStudy 超星助手 <span style="font-size: 12px; color: #969696;">v${infos.script.version}</span>`
 +		}
  	});
@@ -859,7 +863,7 @@ index b443d33..7fe48b1 100644
 +	return [CXProject, CommonProject, BackgroundProject];
  }
 diff --git a/packages/scripts/src/projects/background.ts b/packages/scripts/src/projects/background.ts
-index c9f9c7a..73296a8 100644
+index c9f9c7a..1f7adf3 100644
 --- a/packages/scripts/src/projects/background.ts
 +++ b/packages/scripts/src/projects/background.ts
 @@ -1,6 +1,5 @@
@@ -1346,7 +1350,15 @@ index c9f9c7a..73296a8 100644
  
  				const url = window.location.href;
  				const match = matches.some((regex) => {
-@@ -1188,16 +777,7 @@ export const BackgroundProject = Project.create({
+@@ -1180,7 +769,6 @@ export const BackgroundProject = Project.create({
+ 			matches: [['所有页面', /.*/]],
+ 			async oncomplete() {
+ 				// 注册快捷菜单
+-				await $menu('🏠', { scriptPanelLink: CommonProject.scripts.guide });
+ 				await $menu('🔎', { scriptPanelLink: CommonProject.scripts.workResults });
+ 				await $menu('⚙️', { scriptPanelLink: CommonProject.scripts.settings });
+ 				await $menu('📄', { scriptPanelLink: BackgroundProject.scripts.console });
+@@ -1188,16 +776,7 @@ export const BackgroundProject = Project.create({
  				const currentStudyScript = [
  					[CXProject.scripts.studyDispatcher, CXProject.scripts.study],
  					CXProject.scripts.work,
@@ -1365,7 +1377,7 @@ index c9f9c7a..73296a8 100644
  					.map((m) => {
  						const url = window.location.href;
 diff --git a/packages/scripts/src/projects/common.ts b/packages/scripts/src/projects/common.ts
-index aadb3d9..6c958f2 100644
+index aadb3d9..f845136 100644
 --- a/packages/scripts/src/projects/common.ts
 +++ b/packages/scripts/src/projects/common.ts
 @@ -1,4 +1,5 @@
@@ -1449,7 +1461,7 @@ index aadb3d9..6c958f2 100644
  		questionPositionSyncHandler: {
  			cx: (index: number) => {
  				const el = document.querySelectorAll<HTMLElement>('[id*="sigleQuestionDiv"], .questionLi')?.item(index);
-@@ -123,41 +159,13 @@ const state = {
+@@ -123,41 +159,11 @@ const state = {
  					});
  				}
  			},
@@ -1489,12 +1501,36 @@ index aadb3d9..6c958f2 100644
  		/** 图片题优化兼容性提示消息（可移除） */
 -		imageOptimizeMessage: undefined as MessageElement | undefined
 +		imageOptimizeMessage: undefined as MessageElement | undefined,
-+		/** 模型 API Key 输入框引用（供显示/隐藏按钮切换） */
-+		apiKeyInput: undefined as HTMLInputElement | undefined
  	}
  };
  
-@@ -192,12 +200,24 @@ export const CommonProject = Project.create({
+@@ -165,25 +171,6 @@ export const CommonProject = Project.create({
+ 	name: '通用',
+ 	domains: [],
+ 	scripts: {
+-		guide: new Script({
+-			name: '🏠 使用教程',
+-			matches: [['所有页面', /.*/]],
+-			namespace: 'common.guide',
+-			configs: {
+-				notes: {
+-					defaultValue: $ui.notes([
+-						'打开任意网课平台，进入视频、作业页面等待脚本运行，',
+-						'⚠️ 禁止与其他脚本一起使用（不兼容），也不能开多个相同脚本',
+-						'⚠️ 禁止最小化浏览器、切屏，否则可能导致脚本无法运行！',
+-						'有疑问请访问下方交流群，进群后带截图进行反馈。'
+-					]).outerHTML
+-				}
+-			},
+-			onrender({ panel }) {
+-				const guide = createGuide();
+-				panel.body.replaceChildren(guide);
+-			}
+-		}),
+ 		settings: new Script({
+ 			name: '⚙️ 全局设置',
+ 			matches: [['所有页面', /.*/]],
+@@ -192,12 +179,24 @@ export const CommonProject = Project.create({
  				notes: {
  					defaultValue: $ui.notes([
  						'✨鼠标移动到按钮或者输入框，可以看到提示！',
@@ -1522,7 +1558,7 @@ index aadb3d9..6c958f2 100644
  					defaultValue: [] as AnswererWrapper[]
  				},
  				/**
-@@ -215,576 +235,131 @@ export const CommonProject = Project.create({
+@@ -215,576 +214,121 @@ export const CommonProject = Project.create({
  					defaultValue: [] as string[]
  				},
  
@@ -1704,10 +1740,6 @@ index aadb3d9..6c958f2 100644
 +							'③ 使用“有额度上限、可随时吊销”的受限 Key。'
 +					},
 +					defaultValue: '',
-+					onload(el) {
-+						// 供「显示/隐藏」按钮切换用
-+						state.setting.apiKeyInput = el as unknown as HTMLInputElement;
-+					},
 +					suffixSlot() {
 +						const mkBtn = (text: string, title: string, onclick: () => void) => {
 +							const b = h('button', { className: 'base-style-button-secondary', title }, text);
@@ -1716,11 +1748,6 @@ index aadb3d9..6c958f2 100644
 +						};
 +						const cfg = CommonProject.scripts.settings.cfg as any;
 +						return h('div', { style: { display: 'inline-flex', gap: '4px', flexWrap: 'wrap' } }, [
-+							mkBtn('👁', '显示 / 隐藏 Key', () => {
-+								const input = state.setting.apiKeyInput;
-+								if (!input) return;
-+								input.type = input.type === 'password' ? 'text' : 'password';
-+							}),
 +							mkBtn('🔌 测试连接', '用最小请求验证“提供商 + Key”是否可用', async () => {
 +								const res = await testModelConnection(cfg.cxModelProvider, cfg.cxModelApiKey);
 +								if (res.ok) {
@@ -2202,8 +2229,7 @@ index aadb3d9..6c958f2 100644
 +							}),
 +							mkBtn('🗑 清除', '从本地存储中删除已保存的 API Key', () => {
 +								cfg.cxModelApiKey = '';
-+								const input = state.setting.apiKeyInput;
-+								if (input) input.value = '';
++								// 输入框由配置系统绑定 cfg，清空配置后界面同步刷新
 +								$message.success({ content: '已清除本地保存的 API Key', duration: 6 });
 +							})
 +						]);
@@ -2215,7 +2241,7 @@ index aadb3d9..6c958f2 100644
  					tag: 'select',
  					defaultValue: 80 as WorkUploadType,
  					options: [
-@@ -824,30 +399,6 @@ export const CommonProject = Project.create({
+@@ -824,30 +368,6 @@ export const CommonProject = Project.create({
  							'当章节测试左上角并没有黄色任务点的时候依然进行答题（没有任务点说明此作业可能不计入总成绩，如果老师要求则可以开启）'
  					}
  				},
@@ -2246,7 +2272,7 @@ index aadb3d9..6c958f2 100644
  				advancedSettings: {
  					...dropdownStyle,
  					defaultValue: false,
-@@ -875,16 +426,15 @@ export const CommonProject = Project.create({
+@@ -875,16 +395,15 @@ export const CommonProject = Project.create({
  					attrs: {
  						type: 'checkbox',
  						title:
@@ -2266,7 +2292,7 @@ index aadb3d9..6c958f2 100644
  					attrs: {
  						type: 'number',
  						min: 10,
-@@ -910,7 +460,7 @@ export const CommonProject = Project.create({
+@@ -910,7 +429,7 @@ export const CommonProject = Project.create({
  				period: {
  					showIf: 'common.settings.advancedSettings',
  					elementClassName: 'config-details',
@@ -2275,7 +2301,7 @@ index aadb3d9..6c958f2 100644
  					attrs: {
  						type: 'number',
  						min: 1,
-@@ -996,7 +546,7 @@ export const CommonProject = Project.create({
+@@ -996,7 +515,7 @@ export const CommonProject = Project.create({
  					]
  				},
  				enableQuestionCaches: {
@@ -2284,7 +2310,7 @@ index aadb3d9..6c958f2 100644
  					defaultValue: true,
  					attrs: { type: 'checkbox' },
  					suffixSlot: function () {
-@@ -1020,8 +570,14 @@ export const CommonProject = Project.create({
+@@ -1020,8 +539,14 @@ export const CommonProject = Project.create({
  						/**
  						 * 过滤掉被禁用的题库
  						 */
@@ -2301,7 +2327,7 @@ index aadb3d9..6c958f2 100644
  						);
  
  						return workOptions;
-@@ -1092,9 +648,7 @@ export const CommonProject = Project.create({
+@@ -1092,9 +617,7 @@ export const CommonProject = Project.create({
  							content: h('div', [
  								'当前题库配置暂不支持图片、公式等题目处理',
  								h('br'),
@@ -2312,7 +2338,7 @@ index aadb3d9..6c958f2 100644
  							]),
  							duration: 0,
  							onClose: () => {
-@@ -1121,14 +675,18 @@ export const CommonProject = Project.create({
+@@ -1121,14 +644,18 @@ export const CommonProject = Project.create({
  			namespace: 'common.work-results',
  			configs: {
  				notes: {
@@ -2333,7 +2359,7 @@ index aadb3d9..6c958f2 100644
  				 * 动态答题器不会自动清空搜索结果，因此需要显示手动清空按钮
  				 */
  				dynamicResults: {
-@@ -1173,6 +731,17 @@ export const CommonProject = Project.create({
+@@ -1173,6 +700,17 @@ export const CommonProject = Project.create({
  					 * （携带全部题目的空状态），本方法的首次有效调用即发生在此时。
  					 * 仅当传入数组比当前存储更长时才写入（按位置保留已有最新状态），重复调用无副作用。
  					 */
@@ -2351,7 +2377,7 @@ index aadb3d9..6c958f2 100644
  					fillAll: async (results: SimplifyWorkResult[]): Promise<void> => {
  						await $store.setTab(TAB_WORK_RESULTS_KEY, results);
  					},
-@@ -1386,7 +955,11 @@ export const CommonProject = Project.create({
+@@ -1386,7 +924,11 @@ export const CommonProject = Project.create({
  									h(SearchInfosElement, {
  										infos: result.searchInfos,
  										question: result.question,
@@ -2364,7 +2390,7 @@ index aadb3d9..6c958f2 100644
  									})
  								]);
  							} else {
-@@ -1435,7 +1008,7 @@ export const CommonProject = Project.create({
+@@ -1435,7 +977,7 @@ export const CommonProject = Project.create({
  			namespace: 'common.online-search',
  			configs: {
  				notes: {
@@ -2373,10 +2399,75 @@ index aadb3d9..6c958f2 100644
  				},
  
  				selectSearch: {
-@@ -1669,30 +1242,13 @@ const createGuide = () => {
- 		});
- 	};
+@@ -1604,112 +1146,6 @@ function insertCopyableStyle() {
+ 	document.head.append(style);
+ }
  
+-const createGuide = () => {
+-	const showProjectDetails = (project: Project) => {
+-		$modal.simple({
+-			title: project.name,
+-			width: 800,
+-			content: h('div', [
+-				h('div', [
+-					'运行域名：',
+-					...(project.domains || []).map((d) =>
+-						h(
+-							'a',
+-							{ href: d.startsWith('http') ? d : 'https://' + d, target: '_blank', style: { margin: '0px 4px' } },
+-							d
+-						)
+-					)
+-				]),
+-				h('div', '脚本列表：'),
+-				h(
+-					'ul',
+-					Object.keys(project.scripts)
+-						.sort((a, b) => (project.scripts[b].hideInPanel ? -1 : 1))
+-						.map((key) => {
+-							const script = project.scripts[key];
+-							return h(
+-								'li',
+-								[
+-									h('b', script.name),
+-									$ui.notes([
+-										h('span', ['操作面板：', script.hideInPanel ? '隐藏' : '显示']),
+-
+-										[
+-											'运行页面：',
+-											h(
+-												'ul',
+-												script.matches
+-													.map((m) => (Array.isArray(m) ? m : (['无描述', m] as [string, string | RegExp])))
+-													.map((i) =>
+-														h('li', [
+-															i[0],
+-															'：',
+-															i[1] instanceof RegExp ? i[1].toString().replace(/\\/g, '').slice(1, -1) : h('span', i[1])
+-														])
+-													)
+-											)
+-										]
+-									])
+-								],
+-								(li) => {
+-									li.style.marginBottom = '12px';
+-								}
+-							);
+-						}),
+-					(ul) => {
+-						ul.style.padding = '12px 24px';
+-						ul.style.border = '1px solid #e1e1e1';
+-						ul.style.borderRadius = '4px';
+-						ul.style.maxHeight = '400px';
+-						ul.style.overflow = 'auto';
+-						ul.style.paddingLeft = '42px';
+-					}
+-				)
+-			])
+-		});
+-	};
+-
 -	const gotoHome = h('button', { className: 'base-style-button-secondary' }, '🏡官网教程');
 -	gotoHome.onclick = () => window.open('https://docs.ocsjs.com', '_blank');
 -
@@ -2390,26 +2481,24 @@ index aadb3d9..6c958f2 100644
 -	closeGuide.onclick = () =>
 -		window.open('https://docs.ocsjs.com/docs/script#%E5%85%B3%E9%97%AD%E8%84%9A%E6%9C%AC%E6%95%99%E7%A8%8B', '_blank');
 -
- 	return h('div', { className: 'user-guide' }, [
- 		h('div', [
+-	return h('div', { className: 'user-guide' }, [
+-		h('div', [
 -			h('div', { style: { marginBottom: '4px', fontWeight: 'bold' } }, [
 -				'✨兼容的网课平台：',
 -				h('span', { className: 'secondary', style: { fontWeight: 'normal' } }, '（未适配的平台将无法运行，请等待适配）')
 -			]),
 -
-+			h('div', { style: { marginBottom: '4px', fontWeight: 'bold' } }, '✨支持平台：'),
- 			h(
- 				'div',
- 				{ style: { display: 'flex', flexWrap: 'wrap', gap: '4px', maxWidth: '400px' } },
+-			h(
+-				'div',
+-				{ style: { display: 'flex', flexWrap: 'wrap', gap: '4px', maxWidth: '400px' } },
 -				[CXProject, ZHSProject, ZJYProject, IcveMoocProject, ICourseProject, YKTProject].map((project) => {
-+				[CXProject].map((project) => {
- 					const btn = h('button', { className: 'base-style-button-secondary' }, [project.name]);
- 					btn.onclick = () => {
- 						showProjectDetails(project);
-@@ -1700,13 +1256,6 @@ const createGuide = () => {
- 					return h('span', [btn]);
- 				})
- 			)
+-					const btn = h('button', { className: 'base-style-button-secondary' }, [project.name]);
+-					btn.onclick = () => {
+-						showProjectDetails(project);
+-					};
+-					return h('span', [btn]);
+-				})
+-			)
 -		]),
 -		h('div', { style: { margin: '12px 0px' } }, [
 -			h('div', { style: { marginBottom: '8px', fontWeight: 'bold' } }, '🌐快捷访问：'),
@@ -2417,10 +2506,13 @@ index aadb3d9..6c958f2 100644
 -			contactUs,
 -			changeLog,
 -			closeGuide
- 		])
- 	]);
- };
-@@ -1725,22 +1274,12 @@ function createSearchResultAlertElement(result: SimplifyWorkResult) {
+-		])
+-	]);
+-};
+ 
+ /** 按题型区分"答案无法作答"的提示文案 */
+ const typeMismatchTexts: Record<string, string> = {
+@@ -1725,22 +1161,12 @@ function createSearchResultAlertElement(result: SimplifyWorkResult) {
  	if (result.requested === false && result.resolved === false) {
  		info = h('div', { className: 'result-info unresolved' }, '等待搜索中... 🔍');
  	} else if (err) {
