@@ -1320,7 +1320,7 @@ index c9f9c7a..1f7adf3 100644
  					.map((m) => {
  						const url = window.location.href;
 diff --git a/packages/scripts/src/projects/common.ts b/packages/scripts/src/projects/common.ts
-index aadb3d9..9523f68 100644
+index aadb3d9..3862996 100644
 --- a/packages/scripts/src/projects/common.ts
 +++ b/packages/scripts/src/projects/common.ts
 @@ -1,4 +1,5 @@
@@ -2429,7 +2429,7 @@ index aadb3d9..9523f68 100644
  		edgeMinimize: new Script({
  			name: '边缘最小化图标模式',
  			matches: [['所有页面', /.*/]],
-@@ -1604,114 +999,213 @@ function insertCopyableStyle() {
+@@ -1604,114 +999,220 @@ function insertCopyableStyle() {
  	document.head.append(style);
  }
  
@@ -2686,12 +2686,17 @@ index aadb3d9..9523f68 100644
 +				Math.round(win.getBoundingClientRect().height)
 +		);
 +
-+		if (panelSize.width) {
-+			win.style.width = panelSize.width + 'px';
-+			win.style.height = panelSize.height + 'px';
-+			win.style.maxWidth = '98vw';
-+			win.style.maxHeight = '96vh';
-+		}
++		// 用 !important 写入，并放宽上下限：
++		// 窗口自带样式里可能有 max-width 之类的限制，普通内联样式会被压住（实测窗口仅 624x220）
++		const applySize = (w: number, hgt: number) => {
++			win.style.setProperty('width', w + 'px', 'important');
++			win.style.setProperty('height', hgt + 'px', 'important');
++			win.style.setProperty('max-width', '98vw', 'important');
++			win.style.setProperty('max-height', '96vh', 'important');
++			win.style.setProperty('min-width', '280px', 'important');
++			win.style.setProperty('min-height', '200px', 'important');
++		};
++		if (panelSize.width) applySize(panelSize.width, panelSize.height);
 +
 +		const w = win as any;
 +		if (w.__cxstudyResizable) return;
@@ -2713,7 +2718,10 @@ index aadb3d9..9523f68 100644
 +		});
 +		win.appendChild(handle);
 +
-+		handle.addEventListener('mousedown', (e: MouseEvent) => {
++		// 捕获阶段监听：避免被窗口自身的拖拽/点击逻辑先吃掉
++		handle.addEventListener(
++			'mousedown',
++			(e: MouseEvent) => {
 +			e.preventDefault();
 +			e.stopPropagation();
 +			const startX = e.clientX;
@@ -2722,18 +2730,17 @@ index aadb3d9..9523f68 100644
 +			const move = (ev: MouseEvent) => {
 +				panelSize.width = Math.max(280, Math.round(rect.width + (ev.clientX - startX)));
 +				panelSize.height = Math.max(220, Math.round(rect.height + (ev.clientY - startY)));
-+				win.style.width = panelSize.width + 'px';
-+				win.style.height = panelSize.height + 'px';
-+				win.style.maxWidth = '98vw';
-+				win.style.maxHeight = '96vh';
++				applySize(panelSize.width, panelSize.height);
 +			};
 +			const up = () => {
 +				document.removeEventListener('mousemove', move);
 +				document.removeEventListener('mouseup', up);
 +			};
-+			document.addEventListener('mousemove', move);
-+			document.addEventListener('mouseup', up);
-+		});
++				document.addEventListener('mousemove', move);
++				document.addEventListener('mouseup', up);
++			},
++			true
++		);
 +	} catch (e) {
 +		console.warn('[CXStudy 缩放] 初始化异常: ' + ((e as any) && (e as any).message ? (e as any).message : e));
 +	}
@@ -2743,7 +2750,7 @@ index aadb3d9..9523f68 100644
  const typeMismatchTexts: Record<string, string> = {
  	single: '⚠️ 给出的答案和选项不匹配，可能是题库答案错误',
  	multiple: '⚠️ 给出的答案和选项不匹配，可能是题库答案错误',
-@@ -1725,22 +1219,12 @@ function createSearchResultAlertElement(result: SimplifyWorkResult) {
+@@ -1725,22 +1226,12 @@ function createSearchResultAlertElement(result: SimplifyWorkResult) {
  	if (result.requested === false && result.resolved === false) {
  		info = h('div', { className: 'result-info unresolved' }, '等待搜索中... 🔍');
  	} else if (err) {
