@@ -78,10 +78,10 @@ index 2c23149..cc67037 100644
  					$.sleep((AnswerWrapperHandlerConfig.timeout_seconds ?? 60) * 1000)
  				]);
 diff --git a/packages/core/src/core/worker/interface.ts b/packages/core/src/core/worker/interface.ts
-index 3016971..179019d 100644
+index 3016971..230edc6 100644
 --- a/packages/core/src/core/worker/interface.ts
 +++ b/packages/core/src/core/worker/interface.ts
-@@ -68,6 +68,14 @@ export interface SimplifyWorkResult {
+@@ -68,6 +68,16 @@ export interface SimplifyWorkResult {
  	question: string;
  	/** 题目类型 */
  	type: QuestionTypes;
@@ -93,10 +93,12 @@ index 3016971..179019d 100644
 +	needsManual?: boolean;
 +	/** 填空题的空数（>1 时答题页按空逐个显示与复制） */
 +	blankCount?: number;
++	/** 题目在列表中的序号（答题页据此定位页面中的题目并填入） */
++	index?: number;
  	/** 答题错误信息 */
  	error?: string;
  	/** 是否完成 */
-@@ -120,7 +128,7 @@ export interface DefaultWork<E extends RawElements> {
+@@ -120,7 +130,7 @@ export interface DefaultWork<E extends RawElements> {
  	 */
  	optionText?: (el: HTMLElement, i: number) => string;
  	/**
@@ -587,10 +589,18 @@ index ee6c24d..c010a97 100644
  	});
  })();
 diff --git a/packages/scripts/src/elements/search.infos.ts b/packages/scripts/src/elements/search.infos.ts
-index f81825b..3445bcd 100644
+index f81825b..98d7717 100644
 --- a/packages/scripts/src/elements/search.infos.ts
 +++ b/packages/scripts/src/elements/search.infos.ts
-@@ -21,6 +21,46 @@ const transformImgLinkOfQuestion = (question: string) => {
+@@ -1,6 +1,7 @@
+ import { SimplifyWorkResult, splitAnswer, $, QuestionTypes } from '@ocsjs/core';
+ import { $ui, h } from 'easy-us';
+ import { createQuestionTitleExtra } from '../utils';
++import { CommonProject } from '../projects/common';
+ import { createAccordionCard } from '../utils/ui';
+ 
+ /**
+@@ -21,6 +22,46 @@ const transformImgLinkOfQuestion = (question: string) => {
  	);
  };
  
@@ -637,7 +647,7 @@ index f81825b..3445bcd 100644
  /**
   * 移除特殊字符、空格、换行，用于判断题库返回的题目是否和原题完全匹配
   */
-@@ -36,6 +76,14 @@ export class SearchInfosElement extends HTMLElement {
+@@ -36,6 +77,16 @@ export class SearchInfosElement extends HTMLElement {
  	question: string = '';
  
  	type: QuestionTypes;
@@ -649,10 +659,12 @@ index f81825b..3445bcd 100644
 +	needsManual?: boolean;
 +	/** 填空题的空数（>1 时按空逐个显示与复制，便于逐个填入） */
 +	blankCount?: number;
++	/** 题目序号（点击「填入」时用于定位页面中的该题） */
++	index?: number;
  
  	connectedCallback() {
  		const question = transformImgLinkOfQuestion(this.question || '无');
-@@ -46,7 +94,7 @@ export class SearchInfosElement extends HTMLElement {
+@@ -46,7 +97,7 @@ export class SearchInfosElement extends HTMLElement {
  			judgement: '判断题',
  			completion: '填空题'
  		};
@@ -661,7 +673,7 @@ index f81825b..3445bcd 100644
  
  		this.append(
  			h(
-@@ -100,31 +148,63 @@ export class SearchInfosElement extends HTMLElement {
+@@ -100,31 +151,82 @@ export class SearchInfosElement extends HTMLElement {
  							const isSameQuestion = normalizeQuestion(ans[0] || '') === normalizeQuestion(this.question || '');
  							const extra_data = JSON.parse(JSON.stringify(ans[2] || {}));
  
@@ -702,6 +714,25 @@ index f81825b..3445bcd 100644
 +								setTimeout(() => (copyAnswerBtn.value = '复制答案'), 1000);
 +							};
 +
++							/**
++							 * 填入按钮：**由用户主动点击**才写入答题框。
++							 * 作业/考试绝不自动填入，更不自动提交。
++							 */
++							const fillAnswerAt = CommonProject.scripts.workResults.methods?.fillAnswerAt;
++							const fillBtn =
++								typeof fillAnswerAt === 'function' && this.index !== undefined && rawAnswer
++									? (() => {
++											const b = $ui.button('填入', ANSWER_BTN_ATTRS);
++											b.title = '把该答案写入页面中的答题框（不会提交）';
++											b.onclick = () => {
++												const ok = fillAnswerAt(this.index as number, rawAnswer);
++												b.value = ok ? '已填入√' : '未找到答题框';
++												setTimeout(() => (b.value = '填入'), 1500);
++											};
++											return b;
++									  })()
++									: undefined;
++
  							return h('div', { className: 'search-result' }, [
  								/** 题目（和原题完全匹配时不显示，避免重复） */
  								...(isSameQuestion ? [] : [h('div', { className: 'question' }, [h('span', { innerHTML: title })])]),
@@ -736,7 +767,7 @@ index f81825b..3445bcd 100644
  									...(extra_data.tags
  										? extra_data.tags.map((tag: { text: string; title: string; color: string }) =>
  												$ui.tooltip(
-@@ -137,7 +217,40 @@ export class SearchInfosElement extends HTMLElement {
+@@ -137,7 +239,41 @@ export class SearchInfosElement extends HTMLElement {
  												)
  										  )
  										: []),
@@ -774,7 +805,8 @@ index f81825b..3445bcd 100644
 +										  ]
 +										: splitAnswer(answer).map((a) => h('code', { innerHTML: a }))),
 +									...((this.blankCount || 0) > 1 ? [h('span', { className: 'text-secondary' }, '（整段复制）')] : []),
-+									copyAnswerBtn
++									copyAnswerBtn,
++									...(fillBtn ? [fillBtn] : [])
  								])
  							]);
  						})
@@ -1333,7 +1365,7 @@ index c9f9c7a..73296a8 100644
  					.map((m) => {
  						const url = window.location.href;
 diff --git a/packages/scripts/src/projects/common.ts b/packages/scripts/src/projects/common.ts
-index aadb3d9..cf512f9 100644
+index aadb3d9..6c958f2 100644
 --- a/packages/scripts/src/projects/common.ts
 +++ b/packages/scripts/src/projects/common.ts
 @@ -1,4 +1,5 @@
@@ -1376,7 +1408,48 @@ index aadb3d9..cf512f9 100644
  				duration: 3
  			});
  		}
-@@ -123,41 +125,13 @@ const state = {
+@@ -113,6 +115,40 @@ const state = {
+ 		/**
+ 		 * 题目位置同步处理器
+ 		 */
++		/**
++		 * 答案填入处理器（按题目序号）。
++		 *
++		 * 用于答题页的「填入」按钮：**由用户主动点击**才写入答题框，
++		 * 作业/考试绝不自动填入、更不自动提交。
++		 *
++		 * @returns 是否成功写入
++		 */
++		answerFillHandler: {
++			cx: (index: number, answer: string): boolean => {
++				const root = document
++					.querySelectorAll<HTMLElement>('[id*="sigleQuestionDiv"], .questionLi')
++					.item(index);
++				if (!root || !answer) return false;
++				// 三种答题框形态：普通输入框 / 富文本 iframe / contenteditable
++				const textarea = root.querySelector<HTMLTextAreaElement>('textarea');
++				if (textarea) {
++					textarea.value = answer;
++					textarea.dispatchEvent(new Event('input', { bubbles: true }));
++					return true;
++				}
++				const frame = root.querySelector<HTMLIFrameElement>('iframe');
++				if (frame && frame.contentDocument) {
++					frame.contentDocument.body.innerHTML = answer;
++					return true;
++				}
++				const editable = root.querySelector<HTMLElement>('[contenteditable="true"]');
++				if (editable) {
++					editable.innerText = answer;
++					return true;
++				}
++				return false;
++			}
++		},
+ 		questionPositionSyncHandler: {
+ 			cx: (index: number) => {
+ 				const el = document.querySelectorAll<HTMLElement>('[id*="sigleQuestionDiv"], .questionLi')?.item(index);
+@@ -123,41 +159,13 @@ const state = {
  					});
  				}
  			},
@@ -1421,7 +1494,7 @@ index aadb3d9..cf512f9 100644
  	}
  };
  
-@@ -192,12 +166,24 @@ export const CommonProject = Project.create({
+@@ -192,12 +200,24 @@ export const CommonProject = Project.create({
  				notes: {
  					defaultValue: $ui.notes([
  						'✨鼠标移动到按钮或者输入框，可以看到提示！',
@@ -1449,7 +1522,7 @@ index aadb3d9..cf512f9 100644
  					defaultValue: [] as AnswererWrapper[]
  				},
  				/**
-@@ -215,572 +201,127 @@ export const CommonProject = Project.create({
+@@ -215,576 +235,131 @@ export const CommonProject = Project.create({
  					defaultValue: [] as string[]
  				},
  
@@ -2137,7 +2210,12 @@ index aadb3d9..cf512f9 100644
  					}
  				},
  				upload: {
-@@ -824,30 +365,6 @@ export const CommonProject = Project.create({
+-					label: '答案提交方式（提交率）',
++					label: '章节测验提交阈值',
+ 					tag: 'select',
+ 					defaultValue: 80 as WorkUploadType,
+ 					options: [
+@@ -824,30 +399,6 @@ export const CommonProject = Project.create({
  							'当章节测试左上角并没有黄色任务点的时候依然进行答题（没有任务点说明此作业可能不计入总成绩，如果老师要求则可以开启）'
  					}
  				},
@@ -2168,7 +2246,7 @@ index aadb3d9..cf512f9 100644
  				advancedSettings: {
  					...dropdownStyle,
  					defaultValue: false,
-@@ -875,9 +392,8 @@ export const CommonProject = Project.create({
+@@ -875,16 +426,15 @@ export const CommonProject = Project.create({
  					attrs: {
  						type: 'checkbox',
  						title:
@@ -2180,7 +2258,24 @@ index aadb3d9..cf512f9 100644
  					},
  					defaultValue: true
  				},
-@@ -996,7 +512,7 @@ export const CommonProject = Project.create({
+ 				answerWrapperHandlerTimeout: {
+ 					showIf: 'common.settings.advancedSettings',
+ 					elementClassName: 'config-details',
+-					label: '搜题最大耗时（秒）',
++					label: '模型请求超时（秒）',
+ 					attrs: {
+ 						type: 'number',
+ 						min: 10,
+@@ -910,7 +460,7 @@ export const CommonProject = Project.create({
+ 				period: {
+ 					showIf: 'common.settings.advancedSettings',
+ 					elementClassName: 'config-details',
+-					label: '搜题间隔（秒）',
++					label: '每题处理间隔（秒）',
+ 					attrs: {
+ 						type: 'number',
+ 						min: 1,
+@@ -996,7 +546,7 @@ export const CommonProject = Project.create({
  					]
  				},
  				enableQuestionCaches: {
@@ -2189,7 +2284,7 @@ index aadb3d9..cf512f9 100644
  					defaultValue: true,
  					attrs: { type: 'checkbox' },
  					suffixSlot: function () {
-@@ -1020,8 +536,14 @@ export const CommonProject = Project.create({
+@@ -1020,8 +570,14 @@ export const CommonProject = Project.create({
  						/**
  						 * 过滤掉被禁用的题库
  						 */
@@ -2206,7 +2301,7 @@ index aadb3d9..cf512f9 100644
  						);
  
  						return workOptions;
-@@ -1092,9 +614,7 @@ export const CommonProject = Project.create({
+@@ -1092,9 +648,7 @@ export const CommonProject = Project.create({
  							content: h('div', [
  								'当前题库配置暂不支持图片、公式等题目处理',
  								h('br'),
@@ -2217,7 +2312,19 @@ index aadb3d9..cf512f9 100644
  							]),
  							duration: 0,
  							onClose: () => {
-@@ -1128,7 +648,7 @@ export const CommonProject = Project.create({
+@@ -1121,14 +675,18 @@ export const CommonProject = Project.create({
+ 			namespace: 'common.work-results',
+ 			configs: {
+ 				notes: {
+-					defaultValue: $ui.notes(['点击题目序号，查看搜索结果', '如果没有搜到，可能是题库没有收录该题目答案'])
++					defaultValue: $ui.notes([
++						'点击题目序号可定位到页面中的该题',
++						'每题的答案都支持「复制答案」；填空题多空时按空逐个复制',
++						'需要自动填入答题框时，点该题的「填入」按钮（作业/考试不会自动填入或提交）'
++					])
+ 						.outerHTML
+ 				},
+ 				currentResultIndex: {
  					defaultValue: 0
  				},
  				/**
@@ -2226,7 +2333,25 @@ index aadb3d9..cf512f9 100644
  				 * 动态答题器不会自动清空搜索结果，因此需要显示手动清空按钮
  				 */
  				dynamicResults: {
-@@ -1386,7 +906,11 @@ export const CommonProject = Project.create({
+@@ -1173,6 +731,17 @@ export const CommonProject = Project.create({
+ 					 * （携带全部题目的空状态），本方法的首次有效调用即发生在此时。
+ 					 * 仅当传入数组比当前存储更长时才写入（按位置保留已有最新状态），重复调用无副作用。
+ 					 */
++					/**
++					 * 按题目序号把答案写入页面中的答题框（**不提交**）。
++					 *
++					 * 由答题页的「填入」按钮调用——用户主动点击才写入，
++					 * 作业/考试不会自动填入、更不会自动提交。
++					 */
++					fillAnswerAt: (index: number, answer: string): boolean => {
++						const type = CommonProject.scripts.workResults.cfg.questionPositionSyncHandlerType;
++						const handler = type ? (state.workResult.answerFillHandler as any)[type] : undefined;
++						return typeof handler === 'function' ? handler(index, answer) === true : false;
++					},
+ 					fillAll: async (results: SimplifyWorkResult[]): Promise<void> => {
+ 						await $store.setTab(TAB_WORK_RESULTS_KEY, results);
+ 					},
+@@ -1386,7 +955,11 @@ export const CommonProject = Project.create({
  									h(SearchInfosElement, {
  										infos: result.searchInfos,
  										question: result.question,
@@ -2239,7 +2364,7 @@ index aadb3d9..cf512f9 100644
  									})
  								]);
  							} else {
-@@ -1435,7 +959,7 @@ export const CommonProject = Project.create({
+@@ -1435,7 +1008,7 @@ export const CommonProject = Project.create({
  			namespace: 'common.online-search',
  			configs: {
  				notes: {
@@ -2248,7 +2373,7 @@ index aadb3d9..cf512f9 100644
  				},
  
  				selectSearch: {
-@@ -1669,30 +1193,13 @@ const createGuide = () => {
+@@ -1669,30 +1242,13 @@ const createGuide = () => {
  		});
  	};
  
@@ -2281,7 +2406,7 @@ index aadb3d9..cf512f9 100644
  					const btn = h('button', { className: 'base-style-button-secondary' }, [project.name]);
  					btn.onclick = () => {
  						showProjectDetails(project);
-@@ -1700,13 +1207,6 @@ const createGuide = () => {
+@@ -1700,13 +1256,6 @@ const createGuide = () => {
  					return h('span', [btn]);
  				})
  			)
@@ -2295,7 +2420,7 @@ index aadb3d9..cf512f9 100644
  		])
  	]);
  };
-@@ -1725,22 +1225,12 @@ function createSearchResultAlertElement(result: SimplifyWorkResult) {
+@@ -1725,22 +1274,12 @@ function createSearchResultAlertElement(result: SimplifyWorkResult) {
  	if (result.requested === false && result.resolved === false) {
  		info = h('div', { className: 'result-info unresolved' }, '等待搜索中... 🔍');
  	} else if (err) {
@@ -12094,7 +12219,7 @@ index f62ee3a..5a64aa5 100644
  /** 加载中旋转图标（旋转动画由 custom.less 的 .aw-spin 控制） */
  export const loadingSpinSvg = `<svg class="aw-spin" width="14" height="14" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="28" stroke-dashoffset="10" stroke-linecap="round"/></svg>`;
 diff --git a/packages/scripts/src/utils/work.ts b/packages/scripts/src/utils/work.ts
-index fce71af..1e976c4 100644
+index fce71af..f02242d 100644
 --- a/packages/scripts/src/utils/work.ts
 +++ b/packages/scripts/src/utils/work.ts
 @@ -8,11 +8,15 @@ import {
@@ -12178,7 +12303,7 @@ index fce71af..1e976c4 100644
  		});
  	}
  
-@@ -430,6 +437,11 @@ export function simplifyWorkResult(
+@@ -430,6 +437,12 @@ export function simplifyWorkResult(
  		resolved: wr.resolved,
  		error: wr.error,
  		type: wr.ctx?.type,
@@ -12187,10 +12312,11 @@ index fce71af..1e976c4 100644
 +		randomFilled: (wr as any).cxRandomFilled === true,
 +		needsManual: (wr as any).cxNeedsManual === true,
 +		blankCount: wr.ctx?.elements?.options?.length || 0,
++		index,
  		question,
  		finish: wr.result?.finish,
  		searchInfos:
-@@ -533,12 +545,16 @@ export function createCommonAnswerer(options: {
+@@ -533,12 +546,16 @@ export function createCommonAnswerer(options: {
  							.map((o: HTMLElement | undefined) => o!.innerText)
  							.join('\n')
  			);
@@ -12208,7 +12334,7 @@ index fce71af..1e976c4 100644
  				imageOptimizeOffWarned = true;
  				$message.warn({
  					content: '检测到题目包含图片，但未开启「图片题优化」（通用-全局设置-高级设置中开启），图片题将无法搜题。',
-@@ -551,12 +567,12 @@ export function createCommonAnswerer(options: {
+@@ -551,12 +568,12 @@ export function createCommonAnswerer(options: {
  				options: optResult.text,
  				titleImages,
  				optionsImages: optResult.images,
@@ -12223,7 +12349,7 @@ index fce71af..1e976c4 100644
  				imageUrls.length === 0 &&
  				!imageConvertFailWarned
  			) {
-@@ -566,6 +582,31 @@ export function createCommonAnswerer(options: {
+@@ -566,6 +583,31 @@ export function createCommonAnswerer(options: {
  					duration: 10
  				});
  			}
