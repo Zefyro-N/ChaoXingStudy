@@ -78,10 +78,23 @@ index 2c23149..cc67037 100644
  					$.sleep((AnswerWrapperHandlerConfig.timeout_seconds ?? 60) * 1000)
  				]);
 diff --git a/packages/core/src/core/worker/interface.ts b/packages/core/src/core/worker/interface.ts
-index 3016971..7239986 100644
+index 3016971..16c08b8 100644
 --- a/packages/core/src/core/worker/interface.ts
 +++ b/packages/core/src/core/worker/interface.ts
-@@ -120,7 +120,7 @@ export interface DefaultWork<E extends RawElements> {
+@@ -68,6 +68,12 @@ export interface SimplifyWorkResult {
+ 	question: string;
+ 	/** 题目类型 */
+ 	type: QuestionTypes;
++	/** 精确题型名（主观题：简答/名词解释/论述等；不传时由 type 推断） */
++	kindLabel?: string;
++	/** 该题答案是否由「随机兜底」填入（答题页需要明确标注，避免误以为是模型答案） */
++	randomFilled?: boolean;
++	/** 该题是否需要用户手动作答（未自动填入：富文本编辑器或需上传附件） */
++	needsManual?: boolean;
+ 	/** 答题错误信息 */
+ 	error?: string;
+ 	/** 是否完成 */
+@@ -120,7 +126,7 @@ export interface DefaultWork<E extends RawElements> {
  	 */
  	optionText?: (el: HTMLElement, i: number) => string;
  	/**
@@ -571,6 +584,172 @@ index ee6c24d..c010a97 100644
 +		}
  	});
  })();
+diff --git a/packages/scripts/src/elements/search.infos.ts b/packages/scripts/src/elements/search.infos.ts
+index f81825b..b5756ab 100644
+--- a/packages/scripts/src/elements/search.infos.ts
++++ b/packages/scripts/src/elements/search.infos.ts
+@@ -21,6 +21,46 @@ const transformImgLinkOfQuestion = (question: string) => {
+ 	);
+ };
+ 
++/**
++ * 复制文本到剪贴板。
++ *
++ * 优先用 GM_setClipboard（脚本管理器提供，不受页面/iframe 上下文限制），
++ * 失败再退回 navigator.clipboard。
++ */
++function copyText(text: string): boolean {
++	const t = text == null ? '' : String(text);
++	try {
++		// @ts-ignore GM_setClipboard 由脚本管理器注入
++		if (typeof GM_setClipboard === 'function') {
++			// @ts-ignore
++			GM_setClipboard(t, { type: 'text', mimetype: 'text/plain' });
++			return true;
++		}
++	} catch {
++		// 继续退化
++	}
++	try {
++		navigator.clipboard.writeText(t);
++		return true;
++	} catch {
++		return false;
++	}
++}
++
++/** 答题页内小按钮统一样式 */
++const ANSWER_BTN_ATTRS = {
++	className: 'base-style-button-secondary',
++	style: {
++		padding: '0 4px',
++		fontSize: '12px',
++		height: '20px',
++		lineHeight: '1',
++		display: 'inline-flex',
++		alignItems: 'center',
++		justifyContent: 'center'
++	}
++};
++
+ /**
+  * 移除特殊字符、空格、换行，用于判断题库返回的题目是否和原题完全匹配
+  */
+@@ -36,6 +76,12 @@ export class SearchInfosElement extends HTMLElement {
+ 	question: string = '';
+ 
+ 	type: QuestionTypes;
++	/** 精确题型名（主观题：简答/名词解释/论述等），优先于 type 显示 */
++	kindLabel?: string;
++	/** 该题答案由「随机兜底」填入 —— 必须在界面上明确标注 */
++	randomFilled?: boolean;
++	/** 该题需要用户手动作答（未自动填入） */
++	needsManual?: boolean;
+ 
+ 	connectedCallback() {
+ 		const question = transformImgLinkOfQuestion(this.question || '无');
+@@ -46,7 +92,7 @@ export class SearchInfosElement extends HTMLElement {
+ 			judgement: '判断题',
+ 			completion: '填空题'
+ 		};
+-		const type_label = this.type ? Reflect.get(type_text, this.type) : '';
++		const type_label = this.kindLabel || (this.type ? Reflect.get(type_text, this.type) : '');
+ 
+ 		this.append(
+ 			h(
+@@ -100,31 +146,63 @@ export class SearchInfosElement extends HTMLElement {
+ 							const isSameQuestion = normalizeQuestion(ans[0] || '') === normalizeQuestion(this.question || '');
+ 							const extra_data = JSON.parse(JSON.stringify(ans[2] || {}));
+ 
+-							if (extra_data.ai) {
+-								extra_data.tags = extra_data.tags || [];
+-								extra_data.tags.push({
+-									text: 'AI',
+-									title: '此答案由 AI 生成，仅供参考',
+-									color: 'blue'
+-								});
+-							}
+-
+ 							if (extra_data.cache) {
+ 								extra_data.tags = extra_data.tags || [];
+ 								extra_data.tags.push({
+-									text: '题库缓存',
++									text: '缓存',
+ 									title:
+-										'此答案来自本地缓存，由在线题库搜索后保存在本地。\n- 清空缓存：请前往通用-全局设置-题库缓存功能-管理缓存\n- 关闭缓存：请前往通用-全局设置-题库缓存功能',
++										'此答案来自本地缓存（同一道题不重复请求模型）。\n- 清空缓存：通用 · 全局设置 · 答题缓存 · 管理缓存\n- 关闭缓存：通用 · 全局设置 · 答题缓存',
+ 									color: 'gray'
+ 								});
+ 							}
+ 
++							/** 原始答案文本（复制与完整显示都用它，不能用切分后的片段） */
++							const rawAnswer = ans[1] || '';
++							/**
++							 * 长答案（主观题）整体显示，不按分隔符切块。
++							 * 走 splitAnswer 会把 `；`/`|`/`#` 当成答案分隔符，
++							 * 导致论述题在界面上被切成多段、复制时只能拿到一段。
++							 */
++							const isLongAnswer = rawAnswer.length > 60 || rawAnswer.includes('\n');
++
++							const copyAnswerBtn = $ui.button('复制答案', ANSWER_BTN_ATTRS);
++							copyAnswerBtn.onclick = () => {
++								const ok = copyText(rawAnswer);
++								copyAnswerBtn.value = ok ? '已复制√' : '复制失败';
++								setTimeout(() => (copyAnswerBtn.value = '复制答案'), 1000);
++							};
++
+ 							return h('div', { className: 'search-result' }, [
+ 								/** 题目（和原题完全匹配时不显示，避免重复） */
+ 								...(isSameQuestion ? [] : [h('div', { className: 'question' }, [h('span', { innerHTML: title })])]),
+ 								/** 答案 */
+ 								h('div', { className: 'answer' }, [
+ 									h('span', '答案：'),
++									// 状态标注：随机兜底 / 需手动 —— 必须显著，避免把随机答案当成模型答案
++									...(this.randomFilled
++										? [
++												$ui.tooltip(
++													h('span', {
++														className: 'search-result-answer-tag red',
++														innerText: '⚠ 随机填入',
++														title: '模型未给出可用答案，此答案由脚本随机选择，很可能错误',
++														dataset: { title: '模型未给出可用答案，此答案由脚本随机选择，很可能错误' }
++													})
++												)
++										  ]
++										: []),
++									...(this.needsManual
++										? [
++												$ui.tooltip(
++													h('span', {
++														className: 'search-result-answer-tag orange',
++														innerText: '需手动作答',
++														title: '该题未自动填入（可能是富文本编辑器或需要上传附件），请复制答案后手动作答',
++														dataset: { title: '该题未自动填入（可能是富文本编辑器或需要上传附件），请复制答案后手动作答' }
++													})
++												)
++										  ]
++										: []),
+ 									...(extra_data.tags
+ 										? extra_data.tags.map((tag: { text: string; title: string; color: string }) =>
+ 												$ui.tooltip(
+@@ -137,7 +215,16 @@ export class SearchInfosElement extends HTMLElement {
+ 												)
+ 										  )
+ 										: []),
+-									...splitAnswer(answer).map((a) => h('code', { innerHTML: a }))
++									...(isLongAnswer
++										? [
++												h(
++													'div',
++													{ className: 'answer-full', style: { width: '100%' } },
++													[h('code', { innerHTML: answer })]
++												)
++										  ]
++										: splitAnswer(answer).map((a) => h('code', { innerHTML: a }))),
++									copyAnswerBtn
+ 								])
+ 							]);
+ 						})
 diff --git a/packages/scripts/src/index.ts b/packages/scripts/src/index.ts
 index b443d33..7fe48b1 100644
 --- a/packages/scripts/src/index.ts
@@ -1126,7 +1305,7 @@ index c9f9c7a..73296a8 100644
  					.map((m) => {
  						const url = window.location.href;
 diff --git a/packages/scripts/src/projects/common.ts b/packages/scripts/src/projects/common.ts
-index aadb3d9..a6b1107 100644
+index aadb3d9..3ba9c7c 100644
 --- a/packages/scripts/src/projects/common.ts
 +++ b/packages/scripts/src/projects/common.ts
 @@ -1,4 +1,5 @@
@@ -2019,7 +2198,19 @@ index aadb3d9..a6b1107 100644
  				 * 动态答题器不会自动清空搜索结果，因此需要显示手动清空按钮
  				 */
  				dynamicResults: {
-@@ -1435,7 +955,7 @@ export const CommonProject = Project.create({
+@@ -1386,7 +906,10 @@ export const CommonProject = Project.create({
+ 									h(SearchInfosElement, {
+ 										infos: result.searchInfos,
+ 										question: result.question,
+-										type: result.type
++										type: result.type,
++										kindLabel: result.kindLabel,
++										randomFilled: result.randomFilled,
++										needsManual: result.needsManual
+ 									})
+ 								]);
+ 							} else {
+@@ -1435,7 +958,7 @@ export const CommonProject = Project.create({
  			namespace: 'common.online-search',
  			configs: {
  				notes: {
@@ -2028,7 +2219,7 @@ index aadb3d9..a6b1107 100644
  				},
  
  				selectSearch: {
-@@ -1669,30 +1189,13 @@ const createGuide = () => {
+@@ -1669,30 +1192,13 @@ const createGuide = () => {
  		});
  	};
  
@@ -2061,7 +2252,7 @@ index aadb3d9..a6b1107 100644
  					const btn = h('button', { className: 'base-style-button-secondary' }, [project.name]);
  					btn.onclick = () => {
  						showProjectDetails(project);
-@@ -1700,13 +1203,6 @@ const createGuide = () => {
+@@ -1700,13 +1206,6 @@ const createGuide = () => {
  					return h('span', [btn]);
  				})
  			)
@@ -2075,7 +2266,7 @@ index aadb3d9..a6b1107 100644
  		])
  	]);
  };
-@@ -1725,22 +1221,12 @@ function createSearchResultAlertElement(result: SimplifyWorkResult) {
+@@ -1725,22 +1224,12 @@ function createSearchResultAlertElement(result: SimplifyWorkResult) {
  	if (result.requested === false && result.resolved === false) {
  		info = h('div', { className: 'result-info unresolved' }, '等待搜索中... 🔍');
  	} else if (err) {
@@ -2100,7 +2291,7 @@ index aadb3d9..a6b1107 100644
  		info = h('div', { className: 'result-info no-answer' }, '❌ 题库没搜索到答案');
  	} else {
 diff --git a/packages/scripts/src/projects/cx.ts b/packages/scripts/src/projects/cx.ts
-index da82b2b..96ac6fe 100644
+index da82b2b..c1e7e4c 100644
 --- a/packages/scripts/src/projects/cx.ts
 +++ b/packages/scripts/src/projects/cx.ts
 @@ -9,13 +9,20 @@ import {
@@ -2936,7 +3127,7 @@ index da82b2b..96ac6fe 100644
  				optionsTransform: (elements, ctx) => {
  					const typeInput = elements.type?.[0] as HTMLInputElement;
  					const type = (typeInput ? getQuestionType(parseInt(typeInput.value)) : undefined) || 'unknown';
-@@ -2131,47 +2249,53 @@ const JobRunner = {
+@@ -2131,47 +2249,57 @@ const JobRunner = {
  					simplifyWorkResult(curr, chapterTestTaskQuestionTitleText, index)
  				);
  
@@ -2949,8 +3140,8 @@ index da82b2b..96ac6fe 100644
 -
 +					const options = (curr.ctx?.elements?.options || []).filter(Boolean) as HTMLElement[];
  					const typeInput = curr.ctx?.elements?.type[0] as HTMLInputElement | undefined;
- 					const type = typeInput ? getQuestionType(parseInt(typeInput.value)) : undefined;
- 
+-					const type = typeInput ? getQuestionType(parseInt(typeInput.value)) : undefined;
+-
 -					const commonSetting = CommonProject.scripts.settings.cfg;
 -
 -					if (
@@ -2959,6 +3150,11 @@ index da82b2b..96ac6fe 100644
 -					) {
 -						$console.log('正在随机作答');
 -
++					const rawType = typeInput ? parseInt(typeInput.value) : NaN;
++					const type = typeInput ? getQuestionType(rawType) : undefined;
++					// 精确题型名（答题页显示用）：4/5/6 会被 getQuestionType 压平成 completion
++					if (SUBJECTIVE_TYPES[rawType]) (curr as any).cxKind = SUBJECTIVE_TYPES[rawType];
++
 +					if (!CXProject.scripts.study.cfg.cxRandomFallback) {
 +						$console.warn('[CXStudy] 本题未得到答案（type=' + type + '）→ 已关闭随机兜底，跳过该题。');
 +					} else if (type === 'judgement' || type === 'single' || type === 'multiple') {
@@ -3016,13 +3212,14 @@ index da82b2b..96ac6fe 100644
 +								'[CXStudy] 本题未得到答案，且未找到可写入的答题框（多为富文本编辑器的简答/论述题）' +
 +									' → 该题需手动作答，答案见答题结果面板。'
 +							);
++							(curr as any).cxNeedsManual = true;
  						}
 +					} else {
 +						$console.warn('[CXStudy] 本题未得到答案（type=' + type + '）→ 该题型不支持随机兜底，跳过。');
  					}
  				}
  			},
-@@ -2232,6 +2356,26 @@ const JobRunner = {
+@@ -2232,6 +2360,26 @@ const JobRunner = {
  					// @ts-ignore 提交
  					frameWindow.btnBlueSubmit();
  
@@ -3049,7 +3246,7 @@ index da82b2b..96ac6fe 100644
  					await $.sleep(3000);
  					/** 确定按钮 */
  					// @ts-ignore 确定
-@@ -2351,6 +2495,56 @@ async function readerAndFillHandle(searchInfos: SearchInformation[], list: HTMLE
+@@ -2351,6 +2499,56 @@ async function readerAndFillHandle(searchInfos: SearchInformation[], list: HTMLE
  	return { finish: false };
  }
  
@@ -11785,6 +11982,27 @@ index f7a4de2..ee58c67 100644
  			h('div', '⏸暂停/▶️继续：暂停或恢复自动答题'),
  			h('div', '🔃重新答题：刷新页面，重新开始自动答题')
  		])
+diff --git a/packages/scripts/src/utils/index.ts b/packages/scripts/src/utils/index.ts
+index 2b69fcd..1f95a21 100644
+--- a/packages/scripts/src/utils/index.ts
++++ b/packages/scripts/src/utils/index.ts
+@@ -145,13 +145,13 @@ export function createQuestionTitleExtra(question: string, ...left: HTMLElement[
+ 			justifyContent: 'center'
+ 		}
+ 	};
+-	/** 复制题目按钮（点击后短暂显示反馈） */
+-	const copyBtn = $ui.button('复制', btnAttrs);
++	/** 复制题目按钮（点击后短暂显示反馈）。注意与答案的「复制答案」区分 */
++	const copyBtn = $ui.button('复制题目', btnAttrs);
+ 	copyBtn.onclick = () => {
+ 		navigator.clipboard.writeText(question);
+ 		copyBtn.value = '已复制√';
+ 		setTimeout(() => {
+-			copyBtn.value = '复制';
++			copyBtn.value = '复制题目';
+ 		}, 500);
+ 	};
+ 	/** 百度搜题按钮 */
 diff --git a/packages/scripts/src/utils/ui.ts b/packages/scripts/src/utils/ui.ts
 index f62ee3a..5a64aa5 100644
 --- a/packages/scripts/src/utils/ui.ts
@@ -11804,7 +12022,7 @@ index f62ee3a..5a64aa5 100644
  /** 加载中旋转图标（旋转动画由 custom.less 的 .aw-spin 控制） */
  export const loadingSpinSvg = `<svg class="aw-spin" width="14" height="14" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="28" stroke-dashoffset="10" stroke-linecap="round"/></svg>`;
 diff --git a/packages/scripts/src/utils/work.ts b/packages/scripts/src/utils/work.ts
-index fce71af..ed22b16 100644
+index fce71af..34286c7 100644
 --- a/packages/scripts/src/utils/work.ts
 +++ b/packages/scripts/src/utils/work.ts
 @@ -8,11 +8,15 @@ import {
@@ -11888,7 +12106,18 @@ index fce71af..ed22b16 100644
  		});
  	}
  
-@@ -533,12 +540,16 @@ export function createCommonAnswerer(options: {
+@@ -430,6 +437,10 @@ export function simplifyWorkResult(
+ 		resolved: wr.resolved,
+ 		error: wr.error,
+ 		type: wr.ctx?.type,
++		// 以下三项由平台侧（如超星）在作答过程中写到结果对象上，供答题页明确标注
++		kindLabel: (wr as any).cxKind,
++		randomFilled: (wr as any).cxRandomFilled === true,
++		needsManual: (wr as any).cxNeedsManual === true,
+ 		question,
+ 		finish: wr.result?.finish,
+ 		searchInfos:
+@@ -533,12 +544,16 @@ export function createCommonAnswerer(options: {
  							.map((o: HTMLElement | undefined) => o!.innerText)
  							.join('\n')
  			);
@@ -11906,7 +12135,7 @@ index fce71af..ed22b16 100644
  				imageOptimizeOffWarned = true;
  				$message.warn({
  					content: '检测到题目包含图片，但未开启「图片题优化」（通用-全局设置-高级设置中开启），图片题将无法搜题。',
-@@ -551,12 +562,12 @@ export function createCommonAnswerer(options: {
+@@ -551,12 +566,12 @@ export function createCommonAnswerer(options: {
  				options: optResult.text,
  				titleImages,
  				optionsImages: optResult.images,
@@ -11921,7 +12150,7 @@ index fce71af..ed22b16 100644
  				imageUrls.length === 0 &&
  				!imageConvertFailWarned
  			) {
-@@ -566,6 +577,31 @@ export function createCommonAnswerer(options: {
+@@ -566,6 +581,31 @@ export function createCommonAnswerer(options: {
  					duration: 10
  				});
  			}
@@ -12103,7 +12332,7 @@ index 74b7d18..0000000
 -	readNotes
 -};
 diff --git a/scripts/build-core.js b/scripts/build-core.js
-index 2d2f0e9..98f969e 100644
+index 2d2f0e9..1b33cbd 100644
 --- a/scripts/build-core.js
 +++ b/scripts/build-core.js
 @@ -6,7 +6,7 @@ const util = require('util');
@@ -12211,7 +12440,13 @@ index 2d2f0e9..98f969e 100644
  				match: matchMetadata,
  				grant: [
  					'GM_info',
-@@ -111,8 +137,7 @@ async function createUserJs() {
+@@ -106,13 +132,13 @@ async function createUserJs() {
+ 					'GM_notification',
+ 					'GM_xmlhttpRequest',
+ 					'GM_getResourceText',
++					'GM_setClipboard',
+ 					'GM_addValueChangeListener',
+ 					'GM_removeValueChangeListener'
  				],
  				require: [path.join(__dirname, distPath, 'index.js')],
  				resource: [`STYLE ${CSS_PATH}`],
@@ -12221,7 +12456,7 @@ index 2d2f0e9..98f969e 100644
  			},
  			entry: path.join(__dirname, '../packages/scripts/entry.js'),
  			dist: path.join(__dirname, distPath, 'ocs.user.js')
-@@ -122,8 +147,20 @@ async function createUserJs() {
+@@ -122,8 +148,20 @@ async function createUserJs() {
  	const officialOpts = createOptions();
  	console.log('CreateUserScript: ', officialOpts.metadata.name, officialOpts.dist);
  	await createUserScript(officialOpts);
@@ -12244,7 +12479,7 @@ index 2d2f0e9..98f969e 100644
  
  	/** 创建调试脚本 */
  	const devOpts = createOptions();
-@@ -141,18 +178,6 @@ async function createUserJs() {
+@@ -141,18 +179,6 @@ async function createUserJs() {
  	);
  	console.log('createUserScript: ', devOpts.metadata.name, devOpts.dist);
  	await createUserScript(devOpts);
