@@ -1320,7 +1320,7 @@ index c9f9c7a..1f7adf3 100644
  					.map((m) => {
  						const url = window.location.href;
 diff --git a/packages/scripts/src/projects/common.ts b/packages/scripts/src/projects/common.ts
-index aadb3d9..3b50cb2 100644
+index aadb3d9..2d2913b 100644
 --- a/packages/scripts/src/projects/common.ts
 +++ b/packages/scripts/src/projects/common.ts
 @@ -1,4 +1,5 @@
@@ -1632,7 +1632,10 @@ index aadb3d9..3b50cb2 100644
 -												awsResult.length +
 -												'个题库，请删除一些不必要的题库后重新配置！'
 -										])
--									});
++										title: '⛔ 模型连接失败',
++										content: $ui.notes([res.message, '请检查 Key 是否正确、是否有该模型权限、网络是否可达。']),
++										confirmButtonText: '知道了'
+ 									});
 -									return false;
 -								}
 -
@@ -1641,7 +1644,7 @@ index aadb3d9..3b50cb2 100644
 -								const confirmed = await confirmRiskyAnswerWrappers(awsResult);
 -								if (!confirmed) {
 -									return false;
--								}
+ 								}
 -
 -								// 全局跨域提交改动事件
 -								CommonEvents.emitAnswererChanged(awsResult, CommonProject.scripts.settings.cfg.answererWrappers);
@@ -1668,11 +1671,8 @@ index aadb3d9..3b50cb2 100644
 -													cancelButtonText: '稍后刷新'
 -											  }
 -											: {})
-+										title: '⛔ 模型连接失败',
-+										content: $ui.notes([res.message, '请检查 Key 是否正确、是否有该模型权限、网络是否可达。']),
-+										confirmButtonText: '知道了'
- 									});
- 								}
+-									});
+-								}
 -
 -								// 格式化文本
 -								textarea.value = JSON.stringify(awsResult, null, 4);
@@ -2429,7 +2429,7 @@ index aadb3d9..3b50cb2 100644
  		edgeMinimize: new Script({
  			name: '边缘最小化图标模式',
  			matches: [['所有页面', /.*/]],
-@@ -1604,114 +999,68 @@ function insertCopyableStyle() {
+@@ -1604,114 +999,113 @@ function insertCopyableStyle() {
  	document.head.append(style);
  }
  
@@ -2495,40 +2495,7 @@ index aadb3d9..3b50cb2 100644
 -					}
 -				)
 -			])
-+/** 按题型区分"答案无法作答"的提示文案 */
-+/**
-+ * 让脚本面板支持拖拽缩放。
-+ *
-+ * 面板位于 closed shadow root 内，外部无法注入样式、也取不到宿主元素；
-+ * 但 panel 实例的元素就在 shadow 树里，可用 getRootNode() 取到 shadow 根与宿主元素，
-+ * 直接为其设置尺寸即可。
-+ *
-+ * 全部包在 try/catch 内：拿不到宿主元素时静默跳过，不影响面板本身。
-+ */
-+function enablePanelResizable(panel: any) {
-+	try {
-+		const body = panel && panel.body ? (panel.body as HTMLElement) : undefined;
-+		if (!body) return;
-+		const root = body.getRootNode() as any;
-+		const host = root && root.host ? (root.host as HTMLElement) : undefined;
-+		const target = host || body;
-+		const t = target as any;
-+		if (t.__cxstudyResizable) return;
-+		t.__cxstudyResizable = true;
-+
-+		const handle = h('div', {
-+			title: '拖动调整面板大小',
-+			style: {
-+				position: 'absolute',
-+				right: '0',
-+				bottom: '0',
-+				width: '16px',
-+				height: '16px',
-+				cursor: 'nwse-resize',
-+				zIndex: '2147483647',
-+				background: 'linear-gradient(135deg, rgba(0,0,0,0) 50%, #9a9a9a 50%)'
-+			}
- 		});
+-		});
 -	};
 -
 -	const gotoHome = h('button', { className: 'base-style-button-secondary' }, '🏡官网教程');
@@ -2539,18 +2506,74 @@ index aadb3d9..3b50cb2 100644
 -
 -	const changeLog = h('button', { className: 'base-style-button-secondary' }, '📄更新日志');
 -	changeLog.onclick = () => BackgroundProject.scripts.update.methods.showChangelog();
--
++/** 按题型区分"答案无法作答"的提示文案 */
++/**
++ * 从面板内容元素向上寻找真正的「浮动窗口」元素。
++ *
++ * panel.body 只是窗口内部的内容容器，直接给它设宽高不会改变窗口尺寸；
++ * 因此需要沿 DOM 向上（并跨 shadow 边界）找到第一个定位为 fixed/absolute 的祖先元素。
++ */
++function findPanelWindow(el: HTMLElement): HTMLElement {
++	let node: HTMLElement | null = el;
++	let hops = 0;
++	while (node && hops++ < 15) {
++		try {
++			const pos = getComputedStyle(node).position;
++			if (pos === 'fixed' || pos === 'absolute') return node;
++		} catch {
++			// 计算样式取不到时继续向上
++		}
++		const parent: HTMLElement | null = node.parentElement;
++		if (parent) {
++			node = parent;
++			continue;
++		}
++		const root = node.getRootNode() as any;
++		if (root && root.host) {
++			node = root.host as HTMLElement;
++			continue;
++		}
++		break;
++	}
++	return el;
++}
+ 
 -	const closeGuide = h('button', { className: 'base-style-button-secondary' }, '📄如何关闭脚本？');
 -	closeGuide.onclick = () =>
 -		window.open('https://docs.ocsjs.com/docs/script#%E5%85%B3%E9%97%AD%E8%84%9A%E6%9C%AC%E6%95%99%E7%A8%8B', '_blank');
--
++/** 面板窗口尺寸：模块级保存，面板频繁重渲染后需重新应用 */
++const panelSize = { width: 0, height: 0 };
+ 
 -	return h('div', { className: 'user-guide' }, [
 -		h('div', [
 -			h('div', { style: { marginBottom: '4px', fontWeight: 'bold' } }, [
 -				'✨兼容的网课平台：',
 -				h('span', { className: 'secondary', style: { fontWeight: 'normal' } }, '（未适配的平台将无法运行，请等待适配）')
 -			]),
--
++/**
++ * 让脚本面板支持拖拽缩放。
++ *
++ * 面板位于 closed shadow root 内，外部无法注入样式、也取不到窗口元素；
++ * 但 panel 实例的元素就在 shadow 树里，可沿 DOM 向上找到浮动窗口后直接设置尺寸。
++ *
++ * 面板会随搜索结果频繁重渲染（框架可能重置尺寸），因此每次都重新应用保存的尺寸。
++ * 全部包在 try/catch 内：找不到窗口元素时静默跳过，不影响面板本身。
++ */
++function enablePanelResizable(panel: any) {
++	try {
++		const body = panel && panel.body ? (panel.body as HTMLElement) : undefined;
++		if (!body) return;
++		const win = findPanelWindow(body);
++		if (win === body) return; // 没找到外层窗口，不做无意义的处理
++
++		// 1) 应用已保存的尺寸（重渲染后恢复）
++		if (panelSize.width) {
++			win.style.width = panelSize.width + 'px';
++			win.style.height = panelSize.height + 'px';
++			win.style.maxWidth = '98vw';
++			win.style.maxHeight = '96vh';
++		}
+ 
 -			h(
 -				'div',
 -				{ style: { display: 'flex', flexWrap: 'wrap', gap: '4px', maxWidth: '400px' } },
@@ -2572,20 +2595,40 @@ index aadb3d9..3b50cb2 100644
 -		])
 -	]);
 -};
-+		if (getComputedStyle(target).position === 'static') target.style.position = 'relative';
-+		target.appendChild(handle);
++		// 2) 拖拽柄只挂一次
++		const w = win as any;
++		if (w.__cxstudyResizable) return;
++		w.__cxstudyResizable = true;
++
++		if (getComputedStyle(win).position === 'static') win.style.position = 'relative';
++		const handle = h('div', {
++			title: '拖动调整面板大小',
++			style: {
++				position: 'absolute',
++				right: '0',
++				bottom: '0',
++				width: '16px',
++				height: '16px',
++				cursor: 'nwse-resize',
++				zIndex: '2147483647',
++				background: 'linear-gradient(135deg, rgba(0,0,0,0) 50%, #9a9a9a 50%)'
++			}
++		});
++		win.appendChild(handle);
 +
 +		handle.addEventListener('mousedown', (e: MouseEvent) => {
 +			e.preventDefault();
 +			e.stopPropagation();
 +			const startX = e.clientX;
 +			const startY = e.clientY;
-+			const rect = target.getBoundingClientRect();
++			const rect = win.getBoundingClientRect();
 +			const move = (ev: MouseEvent) => {
-+				target.style.width = Math.max(280, Math.round(rect.width + (ev.clientX - startX))) + 'px';
-+				target.style.height = Math.max(220, Math.round(rect.height + (ev.clientY - startY))) + 'px';
-+				target.style.maxWidth = '98vw';
-+				target.style.maxHeight = '96vh';
++				panelSize.width = Math.max(280, Math.round(rect.width + (ev.clientX - startX)));
++				panelSize.height = Math.max(220, Math.round(rect.height + (ev.clientY - startY)));
++				win.style.width = panelSize.width + 'px';
++				win.style.height = panelSize.height + 'px';
++				win.style.maxWidth = '98vw';
++				win.style.maxHeight = '96vh';
 +			};
 +			const up = () => {
 +				document.removeEventListener('mousemove', move);
@@ -2595,7 +2638,7 @@ index aadb3d9..3b50cb2 100644
 +			document.addEventListener('mouseup', up);
 +		});
 +	} catch {
-+		// 拿不到宿主元素：不影响面板本身
++		// 找不到窗口元素：不影响面板本身
 +	}
 +}
  
@@ -2603,7 +2646,7 @@ index aadb3d9..3b50cb2 100644
  const typeMismatchTexts: Record<string, string> = {
  	single: '⚠️ 给出的答案和选项不匹配，可能是题库答案错误',
  	multiple: '⚠️ 给出的答案和选项不匹配，可能是题库答案错误',
-@@ -1725,22 +1074,12 @@ function createSearchResultAlertElement(result: SimplifyWorkResult) {
+@@ -1725,22 +1119,12 @@ function createSearchResultAlertElement(result: SimplifyWorkResult) {
  	if (result.requested === false && result.resolved === false) {
  		info = h('div', { className: 'result-info unresolved' }, '等待搜索中... 🔍');
  	} else if (err) {
