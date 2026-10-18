@@ -1126,7 +1126,7 @@ index c9f9c7a..73296a8 100644
  					.map((m) => {
  						const url = window.location.href;
 diff --git a/packages/scripts/src/projects/common.ts b/packages/scripts/src/projects/common.ts
-index aadb3d9..96a3f29 100644
+index aadb3d9..1a37ffe 100644
 --- a/packages/scripts/src/projects/common.ts
 +++ b/packages/scripts/src/projects/common.ts
 @@ -8,7 +8,7 @@ import {
@@ -1146,6 +1146,23 @@ index aadb3d9..96a3f29 100644
  import { confirmRiskyAnswerWrappers } from '../utils/answer-wrapper-security';
  import { initEdgeMinimize } from '../utils/edge-minimize';
  import {
+@@ -89,14 +90,14 @@ const answererListHandlers = {
+ 				name
+ 			];
+ 			$message.warn({
+-				content: '题库：' + name + ' 已被停用，如需开启请在：通用-全局设置-题库配置中开启。',
++				content: '答题器「' + name + '」已被停用。',
+ 				duration: 30
+ 			});
+ 		} else {
+ 			CommonProject.scripts.settings.cfg.disabledAnswererWrapperNames =
+ 				CommonProject.scripts.settings.cfg.disabledAnswererWrapperNames.filter((n) => n !== name);
+ 			$message.success({
+-				content: '题库：' + name + ' 已启用。',
++				content: '答题器「' + name + '」已启用。',
+ 				duration: 3
+ 			});
+ 		}
 @@ -123,36 +124,6 @@ const state = {
  					});
  				}
@@ -1183,17 +1200,34 @@ index aadb3d9..96a3f29 100644
  		}
  	},
  	setting: {
-@@ -196,8 +167,8 @@ export const CommonProject = Project.create({
- 						'设置后进入章节测试，作业，考试页面即可自动答题。'
+@@ -192,12 +163,23 @@ export const CommonProject = Project.create({
+ 				notes: {
+ 					defaultValue: $ui.notes([
+ 						'✨鼠标移动到按钮或者输入框，可以看到提示！',
+-						'想要自动答题必须设置 “题库配置” ',
+-						'设置后进入章节测试，作业，考试页面即可自动答题。'
++						'自动答题前，请先在下方填写“模型提供商”与“模型 API Key”。',
++						'设置后进入章节测试、作业、考试页面即可自动答题。'
  					]).outerHTML
  				},
++				/** 总开关：关闭后不自动启动任何刷课/做题流程 */
++				cxMasterSwitch: {
++					label: '总开关（关闭后不自动刷课、不自动答题）',
++					attrs: {
++						type: 'checkbox',
++						title:
++							'默认开启。关闭后，进入课程页不会自动开始刷课，也不会自动处理章节测验/作业/考试，' +
++							'方便你只是单纯浏览课程内容。\n注意：关闭后仍可在脚本面板上手动点击“开始”临时运行一次。'
++					},
++					defaultValue: true
++				},
 +				/** 本分支不使用题库。字段保留以兼容上游面板与类型，不再参与答题。 */
  				answererWrappers: {
 -					separator: '自动答题设置',
  					defaultValue: [] as AnswererWrapper[]
  				},
  				/**
-@@ -215,573 +186,85 @@ export const CommonProject = Project.create({
+@@ -215,573 +197,85 @@ export const CommonProject = Project.create({
  					defaultValue: [] as string[]
  				},
  
@@ -1843,7 +1877,7 @@ index aadb3d9..96a3f29 100644
  				},
  				upload: {
  					label: '答案提交方式（提交率）',
-@@ -824,30 +307,6 @@ export const CommonProject = Project.create({
+@@ -824,30 +318,6 @@ export const CommonProject = Project.create({
  							'当章节测试左上角并没有黄色任务点的时候依然进行答题（没有任务点说明此作业可能不计入总成绩，如果老师要求则可以开启）'
  					}
  				},
@@ -1874,7 +1908,28 @@ index aadb3d9..96a3f29 100644
  				advancedSettings: {
  					...dropdownStyle,
  					defaultValue: false,
-@@ -1020,8 +479,14 @@ export const CommonProject = Project.create({
+@@ -875,9 +345,8 @@ export const CommonProject = Project.create({
+ 					attrs: {
+ 						type: 'checkbox',
+ 						title:
+-							'遇到图片题解析图片成 Base64 上传给题库，防止遇到防盗链等问题无法加载。' +
+-							`需题库配置支持（POST 方法且引用了 \${images} / \${suggestion_title} / \${suggestion_options} 字段），` +
+-							'否则需重新配置题库。原题 title / options 不会被修改。'
++							'把题干/选项中的图片与题干文本一并提供给模型，用于解答图片题（防止防盗链等导致图片无法加载）。' +
++							'开启“允许图片题”时会自动等效开启本项，通常无需单独调整。'
+ 					},
+ 					defaultValue: true
+ 				},
+@@ -996,7 +465,7 @@ export const CommonProject = Project.create({
+ 					]
+ 				},
+ 				enableQuestionCaches: {
+-					label: '题库缓存功能',
++					label: '答题缓存（同一题不重复请求模型）',
+ 					defaultValue: true,
+ 					attrs: { type: 'checkbox' },
+ 					suffixSlot: function () {
+@@ -1020,8 +489,14 @@ export const CommonProject = Project.create({
  						/**
  						 * 过滤掉被禁用的题库
  						 */
@@ -1891,7 +1946,7 @@ index aadb3d9..96a3f29 100644
  						);
  
  						return workOptions;
-@@ -1092,9 +557,7 @@ export const CommonProject = Project.create({
+@@ -1092,9 +567,7 @@ export const CommonProject = Project.create({
  							content: h('div', [
  								'当前题库配置暂不支持图片、公式等题目处理',
  								h('br'),
@@ -1902,7 +1957,7 @@ index aadb3d9..96a3f29 100644
  							]),
  							duration: 0,
  							onClose: () => {
-@@ -1128,7 +591,7 @@ export const CommonProject = Project.create({
+@@ -1128,7 +601,7 @@ export const CommonProject = Project.create({
  					defaultValue: 0
  				},
  				/**
@@ -1911,7 +1966,16 @@ index aadb3d9..96a3f29 100644
  				 * 动态答题器不会自动清空搜索结果，因此需要显示手动清空按钮
  				 */
  				dynamicResults: {
-@@ -1669,30 +1132,13 @@ const createGuide = () => {
+@@ -1435,7 +908,7 @@ export const CommonProject = Project.create({
+ 			namespace: 'common.online-search',
+ 			configs: {
+ 				notes: {
+-					defaultValue: '查题前请在 “通用-全局设置” 中设置题库配置，才能进行在线搜题。'
++					defaultValue: '划词搜索会使用当前配置的模型作答。'
+ 				},
+ 
+ 				selectSearch: {
+@@ -1669,30 +1142,13 @@ const createGuide = () => {
  		});
  	};
  
@@ -1944,7 +2008,7 @@ index aadb3d9..96a3f29 100644
  					const btn = h('button', { className: 'base-style-button-secondary' }, [project.name]);
  					btn.onclick = () => {
  						showProjectDetails(project);
-@@ -1700,13 +1146,6 @@ const createGuide = () => {
+@@ -1700,13 +1156,6 @@ const createGuide = () => {
  					return h('span', [btn]);
  				})
  			)
@@ -1958,7 +2022,7 @@ index aadb3d9..96a3f29 100644
  		])
  	]);
  };
-@@ -1725,22 +1164,12 @@ function createSearchResultAlertElement(result: SimplifyWorkResult) {
+@@ -1725,22 +1174,12 @@ function createSearchResultAlertElement(result: SimplifyWorkResult) {
  	if (result.requested === false && result.resolved === false) {
  		info = h('div', { className: 'result-info unresolved' }, '等待搜索中... 🔍');
  	} else if (err) {
@@ -1983,7 +2047,7 @@ index aadb3d9..96a3f29 100644
  		info = h('div', { className: 'result-info no-answer' }, '❌ 题库没搜索到答案');
  	} else {
 diff --git a/packages/scripts/src/projects/cx.ts b/packages/scripts/src/projects/cx.ts
-index da82b2b..c39e897 100644
+index da82b2b..96ac6fe 100644
 --- a/packages/scripts/src/projects/cx.ts
 +++ b/packages/scripts/src/projects/cx.ts
 @@ -9,13 +9,20 @@ import {
@@ -2003,7 +2067,8 @@ index da82b2b..c39e897 100644
  import { $modal, h, $store, MessageElement, Project, Script, $el, $gm, $$el, $ui, cors, $message } from 'easy-us';
  
  import { CommonEvents, CommonProject } from './common';
- import { workNotes, volume, playbackRate, dropdownStyle } from '../utils/configs';
+-import { workNotes, volume, playbackRate, dropdownStyle } from '../utils/configs';
++import { workNotes, volume, dropdownStyle } from '../utils/configs';
 +import { hasModelConfigured } from '../utils/cx-model';
  import {
  	answerWrapperEmptyWarning,
@@ -2035,13 +2100,25 @@ index da82b2b..c39e897 100644
  
  /**
   * 超星 font-cxsecret 解密用的参考特征表（FRB2 位打包格式，wght 350/400 字重特征）。
-@@ -59,13 +79,12 @@ try {
+@@ -37,11 +57,6 @@ import { waitForElement, waitForMedia } from '../utils/study';
+  */
+ const CX_SECRET_REF_TABLE_URL = 'https://cdn.ocsjs.com/resources/font/font_ref_cx.bin';
+ 
+-const HIGHT_PLAYBACK_RATE_WARNS = [
+-	'⚠️高倍速、夜间、白天大量运行 等情况\n可能导致学习记录清空/回退',
+-	'⚠️超星后台可以看到学习时长，请谨慎设置',
+-	'⚠️如已清空/回退，请降低倍速至1-2倍'
+-];
+ 
+ // @ts-ignore
+ let top: Window = globalThis.top;
+@@ -59,13 +74,11 @@ try {
  const state = {
  	study: {
  		videojs: Object.create({}),
 -		hacked: false,
  		answererWrapperUnsetMessage: undefined as MessageElement | undefined,
- 		playbackRateWarningListenerId: 0
+-		playbackRateWarningListenerId: 0
  	}
  };
  
@@ -2050,23 +2127,18 @@ index da82b2b..c39e897 100644
  
  type Attachment = {
  	/** 只有当 module 为 音视频（并且已经播放完成）时才会有这个属性 */
-@@ -224,20 +243,46 @@ export const CXProject = Project.create({
- 						['⚠️目前超星倍速风控严重，如果高倍速', '被平台清空进度，请调到1-2倍速学习！']
+@@ -219,25 +232,38 @@ export const CXProject = Project.create({
+ 				notes: {
+ 					defaultValue: $ui.notes([
+ 						['任务点不是顺序执行，如果某一个任务没有动', '请查看是否有其他任务正在学习，耐心等待即可。'],
+-						'闯关模式请注意题库如果没完成，需要自己完成才能解锁章节。',
+-						'请勿凌晨刷课，部分学校课程可能会清空进度。',
+-						['⚠️目前超星倍速风控严重，如果高倍速', '被平台清空进度，请调到1-2倍速学习！']
++						'闯关模式下，前面的任务点没完成可能无法解锁后续章节。',
++						'请勿凌晨刷课，部分学校课程可能会清空进度。'
  					]).outerHTML
  				},
 -				playbackRate: { ...playbackRate, attrs: { title: HIGHT_PLAYBACK_RATE_WARNS.join('\n') } },
-+				// 硬约束：不使用倍速。上游此处是可调 select（1~16x），本分支锁定为 1.0x。
-+				playbackRate: {
-+					...playbackRate,
-+					label: '播放倍数（本分支锁定 1.0x）',
-+					options: [['1', '1 x（锁定）']],
-+					attrs: {
-+						title: '本项目硬约束：不采用倍速（1.0x）。以下提示来自超星：' + HIGHT_PLAYBACK_RATE_WARNS.join('；')
-+					},
-+					defaultValue: '1'
-+					// 用 as any 保持与上游一致的宽松类型：
-+					// 若写成字面量对象会让 cfg.playbackRate 收窄为 string，破坏 study() 的 number 形参
-+				} as any,
  				volume: volume,
 +				// 图片阅读/文档：阅读器在跳域 iframe 内无法真实翻阅，
 +				// finishJob() 是该类型唯一可行的完成机制（详见 PROJECT.md §14）。默认开启。
@@ -2101,7 +2173,25 @@ index da82b2b..c39e897 100644
  				},
  				mode: {
  					label: '跳转模式',
-@@ -343,6 +388,19 @@ export const CXProject = Project.create({
+@@ -291,17 +317,6 @@ export const CXProject = Project.create({
+ 					},
+ 					defaultValue: false
+ 				},
+-				showTextareaWhenEdit: {
+-					elementClassName: 'config-details',
+-					label: '编辑时显示自定义编辑框',
+-					showIf: 'cx.new.study.enables',
+-					attrs: {
+-						type: 'checkbox',
+-						title:
+-							'超星默认禁止在编辑框中复制粘贴，开启此选项可以在文本框编辑时生成一个自定义编辑框进行编辑，脚本会将内容同步到编辑框中。'
+-					},
+-					defaultValue: true
+-				},
+ 				notifyWhenHasFaceRecognition: {
+ 					elementClassName: 'config-details',
+ 					showIf: 'cx.new.study.enables',
+@@ -343,6 +358,19 @@ export const CXProject = Project.create({
  					attrs: { type: 'checkbox', title: '开启：章节测试自动答题' },
  					defaultValue: true
  				},
@@ -2121,7 +2211,7 @@ index da82b2b..c39e897 100644
  				enableHyperlink: {
  					elementClassName: 'config-details',
  					showIf: 'cx.new.study.enables',
-@@ -352,7 +410,13 @@ export const CXProject = Project.create({
+@@ -352,23 +380,16 @@ export const CXProject = Project.create({
  				}
  			},
  			onrender({ panel }) {
@@ -2136,7 +2226,23 @@ index da82b2b..c39e897 100644
  					answerWrapperEmptyWarning(10);
  				}
  
-@@ -429,7 +493,7 @@ export const CXProject = Project.create({
+-				// 高倍速警告
+-				this.offConfigChange(state.study.playbackRateWarningListenerId);
+-				state.study.playbackRateWarningListenerId =
+-					this.onConfigChange('playbackRate', (playbackRate) => {
+-						if (playbackRate > 2) {
+-							$modal.alert({
+-								title: '⚠️高倍速警告 （倍速 >= 2）',
+-								content: $ui.notes(HIGHT_PLAYBACK_RATE_WARNS),
+-								maskCloseable: false,
+-								confirmButtonText: '我已知晓风险'
+-							});
+-						}
+-					}) || 0;
+ 			},
+ 			// 这里不使用 oncompelete ，如果某个资源一直在加载中，就会导致 oncomplete 一直无法触发，导致脚本无法运行，所以改为 onactive 只要匹配上就会触发
+ 			async onactive() {
+@@ -429,19 +450,15 @@ export const CXProject = Project.create({
  						// @ts-ignore
  						if (top.currentMedia) {
  							// @ts-ignore 倍速设置
@@ -2145,16 +2251,30 @@ index da82b2b..c39e897 100644
  							// @ts-ignore 音量设置
  							top.currentMedia.volume = this.cfg.volume;
  						}
-@@ -440,7 +504,7 @@ export const CXProject = Project.create({
+ 					};
  
- 					await study({
- 						...this.cfg,
+-					this.onConfigChange('playbackRate', updateMediaState);
+ 					this.onConfigChange('volume', updateMediaState);
+ 
+-					await study({
+-						...this.cfg,
 -						playbackRate: parseFloat(this.cfg.playbackRate.toString())
-+						playbackRate: 1 // 硬约束：恒为 1.0x
- 					});
+-					});
++					await study(this.cfg);
  				}
  			}
-@@ -460,6 +524,8 @@ export const CXProject = Project.create({
+ 		}),
+@@ -455,11 +472,18 @@ export const CXProject = Project.create({
+ 			namespace: 'cx.new.work',
+ 			configs: { notes: workNotes },
+ 			async oncomplete() {
++				// 总开关：关闭后不自动处理作业/考试
++				if (isAutoStartDisabled()) {
++					warnAutoStartDisabled('作答作业/考试');
++					return;
++				}
+ 				if (location.href.includes('/work/view')) {
+ 					return $message.info('当前作业已提交、自动答题关闭');
  				}
  
  				const isExam = /\/exam\/preview/.test(location.href);
@@ -2163,7 +2283,19 @@ index da82b2b..c39e897 100644
  				commonWork({
  					mount_script: this,
  					workerProvider: (opts) => workOrExam(isExam ? 'exam' : 'work', { ...opts, preview_mode: true })
-@@ -592,7 +658,7 @@ export const CXProject = Project.create({
+@@ -511,6 +535,11 @@ export const CXProject = Project.create({
+ 				}
+ 			},
+ 			oncomplete() {
++				// 总开关：关闭后不自动进入自动阅读
++				if (isAutoStartDisabled()) {
++					warnAutoStartDisabled('进入自动阅读');
++					return;
++				}
+ 				// 置顶
+ 				BackgroundProject.scripts.render.methods.pin(this);
+ 				$message.info('请手动点击任意章节开始自动阅读');
+@@ -592,7 +621,7 @@ export const CXProject = Project.create({
  				if (top === window) {
  					$message.warn({
  						content:
@@ -2172,7 +2304,7 @@ index da82b2b..c39e897 100644
  						duration: 0
  					});
  					// 跳转到最新版本的超星
-@@ -647,6 +713,7 @@ export const CXProject = Project.create({
+@@ -647,6 +676,7 @@ export const CXProject = Project.create({
  						duration: 0
  					});
  					const isExam = /\/exam\/test/.test(location.href);
@@ -2180,7 +2312,7 @@ index da82b2b..c39e897 100644
  					const workOptions = CommonProject.scripts.settings.methods.getWorkOptions();
  					BackgroundProject.scripts.render.methods.pin(this);
  					commonWork({
-@@ -661,77 +728,6 @@ export const CXProject = Project.create({
+@@ -661,83 +691,17 @@ export const CXProject = Project.create({
  				setTimeout(() => $gm.unsafeWindow.topreview(), 3000);
  			}
  		}),
@@ -2258,7 +2390,18 @@ index da82b2b..c39e897 100644
  		studyDispatcher: new Script({
  			name: '课程学习调度器',
  			matches: [['课程学习页面', '/mycourse/studentstudy']],
-@@ -782,7 +778,9 @@ export const CXProject = Project.create({
+ 			namespace: 'cx.new.study-dispatcher',
+ 			hideInPanel: true,
+ 			async oncomplete() {
++				// 总开关：关闭后不自动跳转到未完成任务点
++				if (isAutoStartDisabled()) {
++					warnAutoStartDisabled('跳转任务点');
++					return;
++				}
+ 				let chapters = await CXAnalyses.waitForChapterInfos();
+ 
+ 				const params = new URLSearchParams(window.location.href);
+@@ -782,7 +746,9 @@ export const CXProject = Project.create({
  				['作业', '/mooc2/work/dowork']
  			],
  			async oncomplete() {
@@ -2269,7 +2412,7 @@ index da82b2b..c39e897 100644
  			}
  		}),
  		// 积分课提示
-@@ -1184,6 +1182,56 @@ function mobilelearn(opts: CommonWorkOptions) {
+@@ -1184,6 +1150,56 @@ function mobilelearn(opts: CommonWorkOptions) {
   * @see 算法详解见 utils/font-decrypt/bitmap.ts 文件头注释
   * @see 参考 https://bbs.tampermonkey.net.cn/thread-2303-1-1.html
   */
@@ -2326,7 +2469,7 @@ index da82b2b..c39e897 100644
  async function mappingRecognize(doc: Document = document) {
  	// 从 @font-face 的 data URI 中提取加密字体
  	const fontBuffer = extractFontFromStyle(doc, 'font-cxsecret');
-@@ -1332,93 +1380,6 @@ const CXAnalyses = {
+@@ -1332,93 +1348,6 @@ const CXAnalyses = {
  	}
  };
  
@@ -2420,7 +2563,19 @@ index da82b2b..c39e897 100644
  
  /**
   * cx 任务学习
-@@ -1685,7 +1646,9 @@ function searchJob(opts: typeof CXProject.scripts.study.cfg, searchedJobs: Job[]
+@@ -1444,6 +1373,11 @@ export async function study(opts: typeof CXProject.scripts.study.cfg) {
+ 	 * 如果10秒内既没有任务点，也暂停了搜索，则当前则没有任务点
+ 	 */
+ 	const runJobs = async () => {
++		// 总开关：关闭后不自动运行任务点（含视频/文档/章节测验）
++		if (isAutoStartDisabled()) {
++			warnAutoStartDisabled('刷课');
++			return;
++		}
+ 		const job = searchJob(opts, searchedJobs);
+ 		// 如果存在任务点
+ 		if (job && job.func) {
+@@ -1685,7 +1619,9 @@ function searchJob(opts: typeof CXProject.scripts.study.cfg, searchedJobs: Job[]
  									}播放 : ` + jobName;
  								$message.info({ content: msg });
  								$console.log(msg);
@@ -2431,10 +2586,33 @@ index da82b2b..c39e897 100644
  							};
  						}
  					}
-@@ -1804,7 +1767,99 @@ export function fixedVideoProgress() {
+@@ -1804,19 +1740,137 @@ export function fixedVideoProgress() {
  /**
   * 任务点运行器
   */
++
++/** 超星主观题型的 answertype → 提示词里使用的题型名 */
++const SUBJECTIVE_TYPES: Record<number, string> = {
++	4: '简答',
++	5: '名词解释',
++	6: '论述',
++	7: '计算'
++};
++
++/**
++ * 总开关是否处于关闭状态。
++ *
++ * 关闭后：课程学习调度器、任务点运行、作业/考试、自动阅读都不会自动启动，
++ * 便于用户单纯浏览课程内容。**面板与手动「开始」不受影响**。
++ */
++function isAutoStartDisabled(): boolean {
++	return (CommonProject.scripts.settings.cfg as any).cxMasterSwitch === false;
++}
++
++/** 自动启动被总开关拦住时，统一提示一次（避免刷屏） */
++function warnAutoStartDisabled(where: string) {
++	$console.log('[CXStudy] 总开关已关闭 → 不自动' + where + '。需要运行请在面板上手动点击「开始」。');
++}
 +
 +/** 随机兜底填空用的占位文案（沿用上游 randomWork-completeTexts 的默认值） */
 +const RANDOM_FILL_TEXTS = ['不会', '不知道', '不清楚', '不懂', '不会写'];
@@ -2531,7 +2709,9 @@ index da82b2b..c39e897 100644
  	/**
  	 * 播放视频和音频
  	 */
-@@ -1814,7 +1869,9 @@ const JobRunner = {
+ 	async media(
+ 		setting: {
+-			playbackRate: number;
  			volume: number;
  			videoQuizStrategy: VideoQuizStrategy;
  		},
@@ -2540,9 +2720,14 @@ index da82b2b..c39e897 100644
 +		/** 模型答题器，用于视频内弹题；未传时忽略弹题 */
 +		answererWrappers?: any[]
  	) {
- 		const { playbackRate = 1, volume = 0 } = setting;
+-		const { playbackRate = 1, volume = 0 } = setting;
++		const { volume = 0 } = setting;
++		// 硬约束：不使用倍速，恒为 1.0x（不读取配置值）
++		const playbackRate = 1;
  
-@@ -1835,32 +1892,54 @@ const JobRunner = {
+ 		const media = await waitForMedia({ root: doc });
+ 
+@@ -1835,32 +1889,54 @@ const JobRunner = {
  		// 固定视频进度
  		fixedVideoProgress();
  
@@ -2618,7 +2803,7 @@ index da82b2b..c39e897 100644
  		}
  
  		/**
-@@ -1904,8 +1983,8 @@ const JobRunner = {
+@@ -1904,8 +1980,8 @@ const JobRunner = {
  			$console.log('视频开始播放');
  			media.volume = volume;
  
@@ -2629,7 +2814,7 @@ index da82b2b..c39e897 100644
  
  			// 使用 setTimeout 解决 The play() request was interrupted by a call to pause() 问题
  			setTimeout(() => {
-@@ -1921,8 +2000,33 @@ const JobRunner = {
+@@ -1921,8 +1997,33 @@ const JobRunner = {
  	 * 阅读，PPT
  	 */
  	async read(win: Window & { finishJob?: Function }) {
@@ -2665,7 +2850,7 @@ index da82b2b..c39e897 100644
  		await $.sleep(3000);
  	},
  	/**
-@@ -1960,6 +2064,16 @@ const JobRunner = {
+@@ -1960,6 +2061,16 @@ const JobRunner = {
  			return answerWrapperEmptyWarning(0);
  		}
  
@@ -2682,7 +2867,23 @@ index da82b2b..c39e897 100644
  		// 章节测试未使用 commonWork，这里手动触发状态更新
  		CommonEvents.emitWorkerStateChange('start');
  
-@@ -2131,47 +2245,36 @@ const JobRunner = {
+@@ -2030,7 +2141,14 @@ const JobRunner = {
+ 			answerSeparators: answerSeparators.split(',').map((s) => s.trim()),
+ 			/** 默认搜题方法构造器 */
+ 			answerer: createCommonAnswerer({
+-				titleTransform: (elements, ctx) => chapterTestTaskQuestionTitleTransform(elements.title),
++				titleTransform: (elements, ctx) => {
++					const base = chapterTestTaskQuestionTitleTransform(elements.title);
++					// 主观题在 getQuestionType 里被统一映射为 completion，提示词无法区分，
++					// 因此用 @题型@ 前缀把原始 answertype 带过去（cx-model.ts 解析后会从题干中移除）。
++					const raw = parseInt((elements.type?.[0] as HTMLInputElement | undefined)?.value || '-1');
++					const kind = SUBJECTIVE_TYPES[raw];
++					return kind ? { text: '@' + kind + '@' + base.text, images: base.images } : base;
++				},
+ 				optionsTransform: (elements, ctx) => {
+ 					const typeInput = elements.type?.[0] as HTMLInputElement;
+ 					const type = (typeInput ? getQuestionType(parseInt(typeInput.value)) : undefined) || 'unknown';
+@@ -2131,47 +2249,53 @@ const JobRunner = {
  					simplifyWorkResult(curr, chapterTestTaskQuestionTitleText, index)
  				);
  
@@ -2719,11 +2920,12 @@ index da82b2b..c39e897 100644
 +							'[CXStudy] 本题未得到答案（type=' + type + '）→ 随机兜底选择：' +
 +								(option?.textContent?.trim() || '')
 +						);
++						(curr as any).cxRandomFilled = true;
 +						// 与上游一致：点选项父元素里的 a 或 label
 +						option?.parentElement?.querySelector<HTMLElement>('a,label')?.click();
 +					} else if (type === 'completion') {
 +						const text = RANDOM_FILL_TEXTS[Math.floor(Math.random() * RANDOM_FILL_TEXTS.length)];
-+						$console.warn('[CXStudy] 本题未得到答案（填空题）→ 随机兜底填入：' + text);
++						let wrote = 0;
  						for (const option of options) {
  							const textarea = option?.parentElement?.querySelector('textarea');
 -							const completeTexts = commonSetting['randomWork-completeTexts-textarea'].split('\n').filter(Boolean);
@@ -2739,20 +2941,35 @@ index da82b2b..c39e897 100644
 -								}
 -							} else {
 -								$console.error('请设置随机填空的文案');
--							}
++							const frame = option?.parentElement?.querySelector('iframe');
++							if (textarea) {
++								(textarea as HTMLTextAreaElement).value = text;
++								wrote++;
+ 							}
 -
 -							await $.sleep(500);
-+							const frame = option?.parentElement?.querySelector('iframe');
-+							if (textarea) (textarea as HTMLTextAreaElement).value = text;
-+							if (frame?.contentDocument) frame.contentDocument.body.innerHTML = text;
++							if (frame?.contentDocument) {
++								frame.contentDocument.body.innerHTML = text;
++								wrote++;
++							}
 +							await $.sleep(200);
++						}
++						if (wrote > 0) {
++							$console.warn('[CXStudy] 本题未得到答案（填空题）→ 随机兜底填入：' + text);
++							(curr as any).cxRandomFilled = true;
++						} else {
++							// 找不到可写入的框：多为富文本编辑器/主观题，不能谎报已填入
++							$console.warn(
++								'[CXStudy] 本题未得到答案，且未找到可写入的答题框（多为富文本编辑器的简答/论述题）' +
++									' → 该题需手动作答，答案见答题结果面板。'
++							);
  						}
 +					} else {
 +						$console.warn('[CXStudy] 本题未得到答案（type=' + type + '）→ 该题型不支持随机兜底，跳过。');
  					}
  				}
  			},
-@@ -2232,6 +2335,26 @@ const JobRunner = {
+@@ -2232,6 +2356,26 @@ const JobRunner = {
  					// @ts-ignore 提交
  					frameWindow.btnBlueSubmit();
  
@@ -2779,7 +2996,7 @@ index da82b2b..c39e897 100644
  					await $.sleep(3000);
  					/** 确定按钮 */
  					// @ts-ignore 确定
-@@ -2351,6 +2474,56 @@ async function readerAndFillHandle(searchInfos: SearchInformation[], list: HTMLE
+@@ -2351,6 +2495,56 @@ async function readerAndFillHandle(searchInfos: SearchInformation[], list: HTMLE
  	return { finish: false };
  }
  
@@ -10511,10 +10728,10 @@ index 2b9c7ed..0000000
 -}
 diff --git a/packages/scripts/src/utils/cx-model.ts b/packages/scripts/src/utils/cx-model.ts
 new file mode 100644
-index 0000000..3c90538
+index 0000000..7086153
 --- /dev/null
 +++ b/packages/scripts/src/utils/cx-model.ts
-@@ -0,0 +1,217 @@
+@@ -0,0 +1,228 @@
 +/**
 + * 本项目锁定的模型答题器。
 + *
@@ -10581,7 +10798,9 @@ index 0000000..3c90538
 +	'4. 判断题：只输出「正确」或「错误」两个词中的一个。',
 +	'5. 填空题：只输出答案文本。',
 +	'6. 不确定时给出你认为最可能的一个答案，不要提问、不要要求补充信息、不要拒绝作答。',
-+	'7. 题干或选项中的图片会写成 [图片N] 占位符，图片按 N 的顺序（[图片1]、[图片2]…）附在消息末尾，编号与占位符一一对应，请结合图片内容作答。'
++	'7. 题干或选项中的图片会写成 [图片N] 占位符，图片按 N 的顺序（[图片1]、[图片2]…）附在消息末尾，编号与占位符一一对应，请结合图片内容作答。',
++	'8. 主观题（简答/名词解释/论述/计算）：给出可直接粘贴使用的完整答案。用「1. 2. 3.」或短横线分点作答；论述题要写出论点与理由，不要只给一句话。',
++	'9. 涉及数学的内容一律写成纯文本：使用 Unicode 符号（∫ ∑ √ ≤ ≥ ≠ ± × ÷ ∞ ² ³ ₁ ₂ α β γ θ），上下标写成 x^2、a_n；禁止使用 LaTeX 语法（如 $...$、\\frac{}{}、\\sqrt{}）。'
 +].join('\n');
 +
 +/**
@@ -10608,6 +10827,15 @@ index 0000000..3c90538
 +	if (hasShot) { images = images.concat([env.screenshot]); }
 +	// 有图片时优先用带 [图片N] 占位符的文本，模型才知道图片对应题干还是某个选项
 +	var rawTitle = (images.length && env.suggestion_title) ? env.suggestion_title : (env.title || '');
++	// 主观题标记：getQuestionType 把 4/5/6（简答/名词解释/论述）都映射成 completion，
++	// 因此 cx.ts 用 @题型@ 前缀把原始类型带过来，这里解析出来并从题干中移除。
++	var subjectKind = '';
++	var mk = String(rawTitle).match(/^@([^@]{1,8})@/);
++	if (mk) {
++		subjectKind = mk[1];
++		rawTitle = String(rawTitle).slice(mk[0].length);
++		kind = subjectKind;
++	}
 +	var rawOptions = (images.length && env.suggestion_options) ? env.suggestion_options : (env.options || '');
 +	var lines = String(rawOptions).split('\\n').map(function (s) { return s.trim(); }).filter(Boolean);
 +	var isChoice = env.type === 'single' || env.type === 'multiple' || env.type === 'judgement';
@@ -11445,7 +11673,7 @@ index f62ee3a..5a64aa5 100644
  /** 加载中旋转图标（旋转动画由 custom.less 的 .aw-spin 控制） */
  export const loadingSpinSvg = `<svg class="aw-spin" width="14" height="14" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="28" stroke-dashoffset="10" stroke-linecap="round"/></svg>`;
 diff --git a/packages/scripts/src/utils/work.ts b/packages/scripts/src/utils/work.ts
-index fce71af..5ee9304 100644
+index fce71af..ed22b16 100644
 --- a/packages/scripts/src/utils/work.ts
 +++ b/packages/scripts/src/utils/work.ts
 @@ -8,11 +8,15 @@ import {
@@ -11562,7 +11790,7 @@ index fce71af..5ee9304 100644
  				imageUrls.length === 0 &&
  				!imageConvertFailWarned
  			) {
-@@ -566,6 +577,24 @@ export function createCommonAnswerer(options: {
+@@ -566,6 +577,31 @@ export function createCommonAnswerer(options: {
  					duration: 10
  				});
  			}
@@ -11571,9 +11799,16 @@ index fce71af..5ee9304 100644
 +			if ((CommonProject.scripts.settings.cfg as any).cxScreenshot) {
 +				const titleBlank = !title || title.replace(/[\s\[\]图片\d]/g, '').length < 2;
 +				const imagesLost = questionHasImages && imageUrls.length === 0;
-+				if (titleBlank || imagesLost) {
++				// 含复杂公式的题干：文本提取容易失真（上下标、分式、根号、求和等），
++				// 直接截图交给模型比解析 HTML/MathML 可靠
++				const mathChars = (title.match(/[√∑∫≠≤≥±∞∈∀∃⇒⇔αβγθλμσπΔΩ²³₁₂₃]/g) || []).length;
++				const looksLikeFormula =
++					/\\[a-zA-Z]{2,}|[\^_]\{?[0-9a-zA-Z]|<math/i.test(title) || mathChars >= 2;
++				if (titleBlank || imagesLost || looksLikeFormula) {
 +					$console.log(
-+						'[CXStudy] 触发截图兜底（' + (titleBlank ? '题干文本为空' : '图片转换失败') + '）'
++						'[CXStudy] 触发截图兜底（' +
++							(titleBlank ? '题干文本为空' : imagesLost ? '图片转换失败' : '题干含公式') +
++							'）'
 +					);
 +					const shot = await captureElementAsDataUrl(ctx.root, imageToBase64);
 +					if (shot) {
