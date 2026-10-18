@@ -10,14 +10,14 @@ index 675a8fb..16d156f 100644
 +# 构建产物（本地 gulp 输出，不入库；对应 release/ocs.user.js）
 +release/
 diff --git a/package.json b/package.json
-index a715d35..6290fb6 100644
+index a715d35..4902b97 100644
 --- a/package.json
 +++ b/package.json
 @@ -1,6 +1,6 @@
  {
  	"name": "ocsjs",
 -	"version": "5.2.1",
-+	"version": "5.2.1-cxstudy.2",
++	"version": "5.2.1-cxstudy.3",
  	"description": "ocs - online course script 在线网络课程辅助工具",
  	"types": "./lib/src/core/index.d.ts",
  	"main": "./lib/src/core/index.js",
@@ -103,6 +103,66 @@ index 3016971..16c08b8 100644
       *
       *
       * @param type 题目类型
+diff --git a/packages/core/src/core/worker/utils.ts b/packages/core/src/core/worker/utils.ts
+index 594dab4..1f8d4dd 100644
+--- a/packages/core/src/core/worker/utils.ts
++++ b/packages/core/src/core/worker/utils.ts
+@@ -171,3 +171,55 @@ export function splitAnswer(answer: string, separators = ['===', '#', '---', '##
+ 
+ 	return [answer];
+ }
++
++/**
++ * 解析「多空题」答案的**约定格式**（由系统提示词第 9 条规定）。
++ *
++ * 约定：题干有多个空时，模型必须**按空逐个换行**输出，每行写成「第N空：答案」，
++ * 编号从 1 开始且连续。示例：
++ *
++ *   第1空：单精度型
++ *   第2空：双精度型
++ *
++ * 这样切分就不再需要猜测分隔符 —— 顿号「、」本身有歧义
++ * （「甲、乙」可能是两个空，也可能是「牛顿、爱因斯坦、居里夫人」这样一个空里的列举），
++ * 而格式是模型按约定产出的，可以直接信任。
++ *
++ * 校验从严，任一不满足即返回空数组，由调用方回退为**整段显示**：
++ *   - 匹配到「第N空：」的行少于 2 行（单空题不需要逐空界面）
++ *   - 编号不是 1..N 连续顺序（防止答案与空错位）
++ *   - 任一空的内容为空
++ *
++ * @param answer 模型返回的答案原文
++ * @returns 按空拆好的答案；不符合约定格式时返回空数组
++ */
++export function parseBlankAnswers(answer: string): string[] {
++	const text = String(answer || '').replace(/\r\n/g, '\n');
++	if (!text) {
++		return [];
++	}
++	// 允许「第1空：」「第 1 空 :」等空格与全/半角冒号写法；冒号必须存在，避免误判正文
++	const re = /^\s*第\s*(\d+)\s*空\s*[:：]\s*(.*?)\s*$/;
++	const nums: number[] = [];
++	const parts: string[] = [];
++	for (const line of text.split('\n')) {
++		const m = line.match(re);
++		if (m) {
++			nums.push(Number(m[1]));
++			parts.push(m[2]);
++		}
++	}
++	if (parts.length < 2) {
++		return [];
++	}
++	// 编号必须 1..N 连续且按顺序出现，否则宁可整段显示，也不能让答案与空错位
++	for (let i = 0; i < nums.length; i++) {
++		if (nums[i] !== i + 1) {
++			return [];
++		}
++	}
++	if (parts.some((el) => el.length === 0)) {
++		return [];
++	}
++	return parts;
++}
 diff --git a/packages/core/src/utils/index.ts b/packages/core/src/utils/index.ts
 index a5e72af..d3ff06a 100644
 --- a/packages/core/src/utils/index.ts
@@ -589,9 +649,15 @@ index ee6c24d..1d1ccf2 100644
  	});
  })();
 diff --git a/packages/scripts/src/elements/search.infos.ts b/packages/scripts/src/elements/search.infos.ts
-index f81825b..a3416b9 100644
+index f81825b..d19155f 100644
 --- a/packages/scripts/src/elements/search.infos.ts
 +++ b/packages/scripts/src/elements/search.infos.ts
+@@ -1,4 +1,4 @@
+-import { SimplifyWorkResult, splitAnswer, $, QuestionTypes } from '@ocsjs/core';
++import { SimplifyWorkResult, splitAnswer, parseBlankAnswers, $, QuestionTypes } from '@ocsjs/core';
+ import { $ui, h } from 'easy-us';
+ import { createQuestionTitleExtra } from '../utils';
+ import { createAccordionCard } from '../utils/ui';
 @@ -21,6 +21,46 @@ const transformImgLinkOfQuestion = (question: string) => {
  	);
  };
@@ -663,7 +729,7 @@ index f81825b..a3416b9 100644
  
  		this.append(
  			h(
-@@ -100,31 +148,63 @@ export class SearchInfosElement extends HTMLElement {
+@@ -100,31 +148,72 @@ export class SearchInfosElement extends HTMLElement {
  							const isSameQuestion = normalizeQuestion(ans[0] || '') === normalizeQuestion(this.question || '');
  							const extra_data = JSON.parse(JSON.stringify(ans[2] || {}));
  
@@ -696,12 +762,21 @@ index f81825b..a3416b9 100644
 +							 * 导致论述题在界面上被切成多段、复制时只能拿到一段。
 +							 */
 +							const isLongAnswer = rawAnswer.length > 60 || rawAnswer.includes('\n');
-+
-+							const copyAnswerBtn = $ui.button('复制答案', ANSWER_BTN_ATTRS);
++							/**
++							 * 多空题逐空切分：模型按系统提示词第 9 条的约定输出
++							 * 「第1空：…」「第2空：…」，这里只做格式解析，不猜分隔符。
++							 * 不符合约定格式时返回空数组 → 回退为整段显示。
++							 */
++							const blankParts = parseBlankAnswers(rawAnswer);
++							const isMultiBlank = blankParts.length >= 2;
++							
++							const copyAllLabel = isMultiBlank ? '复制全部（按顺序）' : '复制答案';
++							const copyAnswerBtn = $ui.button(copyAllLabel, ANSWER_BTN_ATTRS);
++							copyAnswerBtn.title = isMultiBlank ? '按顺序复制全部空的答案' : '复制完整答案';
 +							copyAnswerBtn.onclick = () => {
 +								const ok = copyText(rawAnswer);
 +								copyAnswerBtn.value = ok ? '已复制√' : '复制失败';
-+								setTimeout(() => (copyAnswerBtn.value = '复制答案'), 1000);
++								setTimeout(() => (copyAnswerBtn.value = copyAllLabel), 1000);
 +							};
 +
  							return h('div', { className: 'search-result' }, [
@@ -738,21 +813,51 @@ index f81825b..a3416b9 100644
  									...(extra_data.tags
  										? extra_data.tags.map((tag: { text: string; title: string; color: string }) =>
  												$ui.tooltip(
-@@ -137,7 +217,17 @@ export class SearchInfosElement extends HTMLElement {
+@@ -137,7 +226,47 @@ export class SearchInfosElement extends HTMLElement {
  												)
  										  )
  										: []),
 -									...splitAnswer(answer).map((a) => h('code', { innerHTML: a }))
 +									// 答案正文：长答案（主观题）整体显示，不被分隔符切段
-+									...(isLongAnswer
-+										? [
-+												h(
-+													'div',
-+													{ className: 'answer-full', style: { width: '100%' } },
-+													[h('code', { innerHTML: answer })]
-+												)
-+										  ]
-+										: splitAnswer(answer).map((a) => h('code', { innerHTML: a }))),
++							...(isMultiBlank
++								? [
++										h(
++											'div',
++											{ className: 'answer-blanks', style: { width: '100%' } },
++											blankParts.flatMap((part, i) => {
++												const oneBtn = $ui.button('复制', ANSWER_BTN_ATTRS);
++												oneBtn.title = `复制第${i + 1}空的答案`;
++												oneBtn.onclick = () => {
++													const ok = copyText(part);
++													oneBtn.value = ok ? '已复制√' : '失败';
++													setTimeout(() => (oneBtn.value = '复制'), 1000);
++												};
++												return [
++													h(
++														'div',
++														{
++															className: 'answer-blank-row',
++															style: { display: 'flex', alignItems: 'flex-start', gap: '6px', width: '100%' }
++														},
++														[
++															h('span', { className: 'answer-blank-no', innerText: `第${i + 1}空` }),
++															h('code', { innerHTML: part }),
++															oneBtn
++														]
++													)
++												];
++											})
++										)
++								  ]
++								: isLongAnswer
++								? [
++										h(
++											'div',
++											{ className: 'answer-full', style: { width: '100%' } },
++											[h('code', { innerHTML: answer })]
++										)
++								  ]
++								: splitAnswer(answer).map((a) => h('code', { innerHTML: a }))),
 +									copyAnswerBtn,
  								])
  							]);
@@ -11340,10 +11445,10 @@ index 693e800..2e94735 100644
  };
 diff --git a/packages/scripts/src/utils/cx-model.ts b/packages/scripts/src/utils/cx-model.ts
 new file mode 100644
-index 0000000..c33952b
+index 0000000..1d17313
 --- /dev/null
 +++ b/packages/scripts/src/utils/cx-model.ts
-@@ -0,0 +1,306 @@
+@@ -0,0 +1,307 @@
 +/**
 + * 本项目锁定的模型答题器。
 + *
@@ -11412,7 +11517,8 @@ index 0000000..c33952b
 +	'6. 不确定时给出你认为最可能的一个答案，不要提问、不要要求补充信息、不要拒绝作答。',
 +	'7. 题干或选项中的图片会写成 [图片N] 占位符，图片按 N 的顺序（[图片1]、[图片2]…）附在消息末尾，编号与占位符一一对应，请结合图片内容作答。',
 +	'8. 主观题（简答/名词解释/论述/计算）：给出可直接粘贴使用的完整答案。用「1. 2. 3.」或短横线分点作答；论述题要写出论点与理由，不要只给一句话。',
-+	'9. 涉及数学的内容一律写成纯文本：使用 Unicode 符号（∫ ∑ √ ≤ ≥ ≠ ± × ÷ ∞ ² ³ ₁ ₂ α β γ θ），上下标写成 x^2、a_n；禁止使用 LaTeX 语法（如 $...$、\\frac{}{}、\\sqrt{}）。'
++	'9. 【多空题】若题干中有两个及以上的空（题干里出现多个 ___ 或「第N空」），必须**按空逐个换行**输出，每行严格写成「第N空：答案」，编号从 1 开始、连续、每个空都写。例如：\n第1空：单精度型\n第2空：双精度型\n不要把多个空的答案写在同一行，也不要用「、」把它们连起来。本条优先于第 8 条的分点格式。',
++	'10. 涉及数学的内容一律写成纯文本：使用 Unicode 符号（∫ ∑ √ ≤ ≥ ≠ ± × ÷ ∞ ² ³ ₁ ₂ α β γ θ），上下标写成 x^2、a_n；禁止使用 LaTeX 语法（如 $...$、\\frac{}{}、\\sqrt{}）。'
 +].join('\n');
 +
 +/**
@@ -12719,7 +12825,7 @@ index 74b7d18..0000000
 -	readNotes
 -};
 diff --git a/scripts/build-core.js b/scripts/build-core.js
-index 2d2f0e9..8d08023 100644
+index 2d2f0e9..522f0dc 100644
 --- a/scripts/build-core.js
 +++ b/scripts/build-core.js
 @@ -6,7 +6,7 @@ const util = require('util');
@@ -12731,13 +12837,18 @@ index 2d2f0e9..8d08023 100644
  const path = require('path');
  const dotenv = require('dotenv');
  const fs = require('fs');
-@@ -24,6 +24,14 @@ function cleanOutput() {
+@@ -24,6 +24,19 @@ function cleanOutput() {
  
  async function testResolver() {
  	await execOut('tsx ../tests/resolver.test.ts');
 +	// handler 是以字符串形式存在的运行期源码（由 Function() 求值），
 +	// tsc 查不出其中的引用错误，因此构建前必须真实求值并调用一遍。
 +	await execOut('tsx ../tests/cx-model.handler.test.ts');
++	// 多空题答案的「约定格式」解析：编号错位/内容为空等边界必须锁死。
++	// 该测试引入 @ocsjs/core 的入口（其中含继承 HTMLElement 的类），因此同样需要 jsdom 预载。
++	await execOut('tsx --require ./tests/setup-browser-env.cjs tests/blank-answers.test.ts', {
++		cwd: path.join(__dirname, '..')
++	});
 +	// 弹题定位需要真实 DOM（jsdom），用 --require 预加载浏览器环境。
 +	// 注意：预加载路径相对仓库根解析，因此这一条切到仓库根执行。
 +	await execOut('tsx --require ./tests/setup-browser-env.cjs tests/cx-videoquiz.test.ts', {
@@ -12746,7 +12857,7 @@ index 2d2f0e9..8d08023 100644
  }
  
  async function buildPackages() {
-@@ -48,18 +56,30 @@ async function createUserJs() {
+@@ -48,18 +61,30 @@ async function createUserJs() {
  	// @ts-ignore
  	const ocs = require(path.join(distPath, 'index.js'));
  
@@ -12783,7 +12894,7 @@ index 2d2f0e9..8d08023 100644
  					.flat()
  			)
  		);
-@@ -76,23 +96,31 @@ async function createUserJs() {
+@@ -76,23 +101,31 @@ async function createUserJs() {
  				gap: '\t'.repeat(4)
  			},
  			metadata: {
@@ -12798,7 +12909,7 @@ index 2d2f0e9..8d08023 100644
 +				name: 'CXStudy 超星助手',
 +				// 版本号显式写出：package.json 的 version 在本构建流程里没有生效（产物仍是旧版本号），
 +				// 而版本号决定油猴能否识别更新，必须准确。发版时递增此处与 package.json。
-+				version: '5.2.1-cxstudy.2',
++				version: '5.2.1-cxstudy.3',
 +				description:
 +					'超星学习通专用助手：以真实速率推进视频/音频/文档任务点，章节测验自动作答（支持图片题）。' +
 +					'基于 MIT 协议的 OCS 网课助手（https://github.com/ocsjs/ocsjs）衍生，仅保留超星学习通平台。',
@@ -12830,7 +12941,7 @@ index 2d2f0e9..8d08023 100644
  				match: matchMetadata,
  				grant: [
  					'GM_info',
-@@ -106,13 +134,13 @@ async function createUserJs() {
+@@ -106,13 +139,13 @@ async function createUserJs() {
  					'GM_notification',
  					'GM_xmlhttpRequest',
  					'GM_getResourceText',
@@ -12846,7 +12957,7 @@ index 2d2f0e9..8d08023 100644
  			},
  			entry: path.join(__dirname, '../packages/scripts/entry.js'),
  			dist: path.join(__dirname, distPath, 'ocs.user.js')
-@@ -122,8 +150,20 @@ async function createUserJs() {
+@@ -122,8 +155,20 @@ async function createUserJs() {
  	const officialOpts = createOptions();
  	console.log('CreateUserScript: ', officialOpts.metadata.name, officialOpts.dist);
  	await createUserScript(officialOpts);
@@ -12869,7 +12980,7 @@ index 2d2f0e9..8d08023 100644
  
  	/** 创建调试脚本 */
  	const devOpts = createOptions();
-@@ -141,18 +181,6 @@ async function createUserJs() {
+@@ -141,18 +186,6 @@ async function createUserJs() {
  	);
  	console.log('createUserScript: ', devOpts.metadata.name, devOpts.dist);
  	await createUserScript(devOpts);
@@ -12901,12 +13012,131 @@ index 9835802..5f397c6 100644
   * 不能在本文件内 require('browser-env')：ES import 会被提升到 require 之前执行，
   * 导致 easy-us 顶层 `class IElement extends HTMLElement` 先于 HTMLElement 注册而崩溃。
   */
+diff --git a/tests/blank-answers.test.ts b/tests/blank-answers.test.ts
+new file mode 100644
+index 0000000..1f0dd24
+--- /dev/null
++++ b/tests/blank-answers.test.ts
+@@ -0,0 +1,113 @@
++/**
++ * 多空题答案「约定格式」解析测试（parseBlankAnswers）
++ *
++ * pnpm test                                        运行全部
++ * pnpm exec tsx tests/blank-answers.test.ts        只跑本文件
++ *
++ * 思路：主观题/多空题的答案本来就是 AI 给的，那就**用系统提示词规定它的输出格式**
++ * （第 9 条：题干有多个空时，按空逐个换行输出「第N空：答案」），
++ * 解析时只认这个格式即可 —— 不需要猜分隔符。
++ *
++ * 之所以不靠顿号「、」切分：它本身有歧义 ——
++ *   「单精度型、双精度型」是两个空的答案（该切）
++ *   「牛顿、爱因斯坦、居里夫人」是**一个空**里的列举（不该切）
++ *
++ * 本文件守住的典型缺陷：
++ *   1. 编号不从 1 开始或不连续时仍然采用 → 答案与空**错位**（比不切更危险）；
++ *   2. 只匹配到 1 行就当成多空 → 单空题出现无意义的逐空界面；
++ *   3. 任一空内容为空仍采用 → 界面上出现空的「第N空」；
++ *   4. 正文里恰好出现「第1空」字样时误判（因此要求必须有冒号）。
++ */
++
++// 直接引源码路径：构建顺序是「先跑测试、后 tsc」，
++// 此时 @ocsjs/core 的产物 lib 还是上一版，取不到本次新增的函数。
++// （cx-model.handler.test.ts 出于同样原因也是直接引源码路径。）
++import { parseBlankAnswers } from '../packages/core/src/core/worker/utils';
++
++let pass = 0;
++const failures: string[] = [];
++
++function ok(name: string, cond: boolean, detail?: string) {
++	if (cond) {
++		pass++;
++		console.log('  ✅ ' + name);
++	} else {
++		failures.push(name + (detail ? ' —— ' + detail : ''));
++		console.log('  ❌ ' + name + (detail ? ' —— ' + detail : ''));
++	}
++}
++
++function eq(name: string, actual: string[], expected: string[]) {
++	const a = JSON.stringify(actual);
++	const b = JSON.stringify(expected);
++	ok(name, a === b, a === b ? undefined : '实际 ' + a + '，期望 ' + b);
++}
++
++// ============ 1. 符合约定格式 → 正常切分 ============
++
++eq(
++	'标准两空（约定格式）',
++	parseBlankAnswers('第1空：单精度型\n第2空：双精度型'),
++	['单精度型', '双精度型']
++);
++eq(
++	'四空按序切分',
++	parseBlankAnswers('第1空：甲\n第2空：乙\n第3空：丙\n第4空：丁'),
++	['甲', '乙', '丙', '丁']
++);
++eq('半角冒号也认', parseBlankAnswers('第1空: A\n第2空: B'), ['A', 'B']);
++eq('空号内外空格容错', parseBlankAnswers('第 1 空 ： 甲\n第 2 空 : 乙'), ['甲', '乙']);
++eq('CRLF 换行容错', parseBlankAnswers('第1空：甲\r\n第2空：乙'), ['甲', '乙']);
++eq(
++	'答案较长（含标点）完整保留',
++	parseBlankAnswers('第1空：先有物质，后有意识。\n第2空：物质决定意识，意识反作用于物质。'),
++	['先有物质，后有意识。', '物质决定意识，意识反作用于物质。']
++);
++ok(
++	'模型多嘴时仍能取到各空（忽略非格式行）',
++	JSON.stringify(parseBlankAnswers('好的，答案如下：\n第1空：甲\n第2空：乙\n以上。')) === '["甲","乙"]'
++);
++
++// ============ 2. 不符合约定格式 → 必须返回空数组（回退整段显示）============
++
++eq('顿号连写（旧写法，无格式）→ 不切', parseBlankAnswers('单精度型、双精度型'), []);
++eq(
++	'一个空里的顿号列举 → 不切',
++	parseBlankAnswers('牛顿、爱因斯坦、居里夫人'),
++	[]
++);
++eq('只有一空 → 不切（单空不需要逐空界面）', parseBlankAnswers('第1空：甲'), []);
++eq('编号不从 1 开始 → 不切（防错位）', parseBlankAnswers('第2空：甲\n第3空：乙'), []);
++eq('编号不连续 → 不切（防错位）', parseBlankAnswers('第1空：甲\n第3空：乙'), []);
++eq('编号重复 → 不切（防错位）', parseBlankAnswers('第1空：甲\n第1空：乙'), []);
++eq('任一空内容为空 → 不切', parseBlankAnswers('第1空：甲\n第2空：'), []);
++eq('缺少冒号 → 不切（防止正文误判）', parseBlankAnswers('第1空 甲\n第2空 乙'), []);
++eq('空字符串 → 不切', parseBlankAnswers(''), []);
++eq('null/undefined 容错', parseBlankAnswers(undefined as any), []);
++eq('普通论述答案 → 不切', parseBlankAnswers('内在主义是关于信念证成的理论，强调信念之间的支持关系。'), []);
++
++// ============ 3. 顺序保真 ============
++
++const parts = parseBlankAnswers('第1空：甲\n第2空：乙\n第3空：丙');
++eq('顺序与编号一致', parts, ['甲', '乙', '丙']);
++ok(
++	'每段均非空且已 trim',
++	parts.every((p) => p.length > 0 && p === p.trim()),
++	JSON.stringify(parts)
++);
++
++console.log(
++	'\n' +
++		(failures.length === 0 ? '✅ ' : '❌ ') +
++		pass +
++		' 通过   ❌ ' +
++		failures.length +
++		' 失败   共 ' +
++		(pass + failures.length) +
++		' 项'
++);
++if (failures.length) {
++	console.log('\n失败项：');
++	failures.forEach((f) => console.log('  - ' + f));
++	process.exit(1);
++}
 diff --git a/tests/cx-model.handler.test.ts b/tests/cx-model.handler.test.ts
 new file mode 100644
-index 0000000..f5f68c1
+index 0000000..fa5eecf
 --- /dev/null
 +++ b/tests/cx-model.handler.test.ts
-@@ -0,0 +1,179 @@
+@@ -0,0 +1,185 @@
 +/**
 + * 模型 prompt 构造器测试
 + *
@@ -13069,6 +13299,12 @@ index 0000000..f5f68c1
 +	ok('提示词要求图片选项输出 [图片N] 标记', sysText.includes('[图片2]'), sysText.slice(0, 120));
 +	ok('提示词声明编号与图片顺序一一对应', sysText.includes('一一对应'));
 +	ok('提示词仍保留「输出选项文字」作为主路径', sysText.includes('输出正确选项的完整文字'));
++	// 多空题：答案格式必须由提示词规定，解析端才不需要猜分隔符
++	ok('提示词要求多空题按「第N空：」逐行输出', sysText.includes('第N空：答案'));
++	ok('提示词给出第1空/第2空示例', sysText.includes('第1空：单精度型') && sysText.includes('第2空：双精度型'));
++	ok('提示词禁止用顿号把多个空连成一行', sysText.includes('不要用「、」'));
++	ok('多空格式优先于主观题分点格式', sysText.includes('优先于第 8 条'));
++	ok('提示词仍拒绝对外输出解释与前后缀', sysText.includes('不要输出解释'));
 +}
 +
 +console.log(
