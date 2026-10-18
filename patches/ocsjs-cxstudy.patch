@@ -1320,7 +1320,7 @@ index c9f9c7a..1f7adf3 100644
  					.map((m) => {
  						const url = window.location.href;
 diff --git a/packages/scripts/src/projects/common.ts b/packages/scripts/src/projects/common.ts
-index aadb3d9..3862996 100644
+index aadb3d9..22121e2 100644
 --- a/packages/scripts/src/projects/common.ts
 +++ b/packages/scripts/src/projects/common.ts
 @@ -1,4 +1,5 @@
@@ -1632,7 +1632,10 @@ index aadb3d9..3862996 100644
 -												awsResult.length +
 -												'个题库，请删除一些不必要的题库后重新配置！'
 -										])
--									});
++										title: '⛔ 模型连接失败',
++										content: $ui.notes([res.message, '请检查 Key 是否正确、是否有该模型权限、网络是否可达。']),
++										confirmButtonText: '知道了'
+ 									});
 -									return false;
 -								}
 -
@@ -1641,7 +1644,7 @@ index aadb3d9..3862996 100644
 -								const confirmed = await confirmRiskyAnswerWrappers(awsResult);
 -								if (!confirmed) {
 -									return false;
--								}
+ 								}
 -
 -								// 全局跨域提交改动事件
 -								CommonEvents.emitAnswererChanged(awsResult, CommonProject.scripts.settings.cfg.answererWrappers);
@@ -1668,11 +1671,8 @@ index aadb3d9..3862996 100644
 -													cancelButtonText: '稍后刷新'
 -											  }
 -											: {})
-+										title: '⛔ 模型连接失败',
-+										content: $ui.notes([res.message, '请检查 Key 是否正确、是否有该模型权限、网络是否可达。']),
-+										confirmButtonText: '知道了'
- 									});
- 								}
+-									});
+-								}
 -
 -								// 格式化文本
 -								textarea.value = JSON.stringify(awsResult, null, 4);
@@ -2304,16 +2304,7 @@ index aadb3d9..3862996 100644
  									})
  								]);
  							} else {
-@@ -1406,6 +908,8 @@ export const CommonProject = Project.create({
- 			},
- 			onrender({ panel }) {
- 				panel.body.replaceChildren(this.methods.createWorkResultsPanel());
-+				// 面板窗口支持拖拽缩放（所有脚本面板共用同一个宿主窗口）
-+				enablePanelResizable(panel);
- 			},
- 			oncomplete() {
- 				let working_msg: HTMLElement | undefined;
-@@ -1429,115 +933,6 @@ export const CommonProject = Project.create({
+@@ -1429,115 +931,6 @@ export const CommonProject = Project.create({
  			'work-state-change': (state: 'done' | 'start' | 'stop' | 'close') => void;
  			'work-current-result-change': (cur: SimplifyWorkResult) => void;
  		}>(),
@@ -2429,7 +2420,7 @@ index aadb3d9..3862996 100644
  		edgeMinimize: new Script({
  			name: '边缘最小化图标模式',
  			matches: [['所有页面', /.*/]],
-@@ -1604,114 +999,220 @@ function insertCopyableStyle() {
+@@ -1604,112 +997,6 @@ function insertCopyableStyle() {
  	document.head.append(style);
  }
  
@@ -2462,7 +2453,7 @@ index aadb3d9..3862996 100644
 -									h('b', script.name),
 -									$ui.notes([
 -										h('span', ['操作面板：', script.hideInPanel ? '隐藏' : '显示']),
- 
+-
 -										[
 -											'运行页面：',
 -											h(
@@ -2497,123 +2488,27 @@ index aadb3d9..3862996 100644
 -			])
 -		});
 -	};
-+/** 按题型区分"答案无法作答"的提示文案 */
-+/**
-+ * 从面板内容元素向上收集整条祖先链（含跨 shadow 边界）。
-+ *
-+ * panel.body 只是窗口内部的内容容器；各脚本面板共用同一个外层窗口，
-+ * 因此必须拿到**最外层**那个浮动窗口才能正确缩放，拿到内层容器会把
-+ * 拖拽柄放到共享内容区的角落（看起来就像"塞进了某个设置面板"）。
-+ */
-+function collectPanelChain(el: HTMLElement): HTMLElement[] {
-+	const chain: HTMLElement[] = [];
-+	const seen = new Set<HTMLElement>();
-+	let node: HTMLElement | null = el;
-+	let hops = 0;
-+	while (node && hops++ < 20 && !seen.has(node)) {
-+		seen.add(node);
-+		chain.push(node);
-+		const parent: HTMLElement | null = node.parentElement;
-+		if (parent) {
-+			node = parent;
-+			continue;
-+		}
-+		const root = node.getRootNode() as any;
-+		if (root && root.host) {
-+			node = root.host as HTMLElement;
-+			continue;
-+		}
-+		break;
-+	}
-+	return chain;
-+}
- 
+-
 -	const gotoHome = h('button', { className: 'base-style-button-secondary' }, '🏡官网教程');
 -	gotoHome.onclick = () => window.open('https://docs.ocsjs.com', '_blank');
-+/** 判断元素是否为"被定位"的盒子（fixed/absolute/relative 都算） */
-+function isPositioned(el: HTMLElement): boolean {
-+	try {
-+		const pos = getComputedStyle(el).position;
-+		return pos === 'fixed' || pos === 'absolute' || pos === 'relative';
-+	} catch {
-+		return false;
-+	}
-+}
- 
+-
 -	const contactUs = h('button', { className: 'base-style-button-secondary' }, '🗨️交流群');
 -	contactUs.onclick = () => window.open('https://docs.ocsjs.com/docs/about#交流方式', '_blank');
-+/**
-+ * 找到真正的浮动窗口元素。
-+ *
-+ * 取祖先链里**最外层**的被定位元素：内层容器尺寸通常跟随外层窗口，
-+ * 所以只要改外层即可；若整条链都没有定位元素，则退回最外层元素本身。
-+ */
-+function findPanelWindow(el: HTMLElement): HTMLElement | undefined {
-+	const chain = collectPanelChain(el);
-+	if (chain.length <= 1) return undefined;
-+	for (let i = chain.length - 1; i >= 0; i--) {
-+		if (isPositioned(chain[i])) return chain[i];
-+	}
-+	// 没有定位元素：用链上最外层（shadow 宿主），至少比内容容器更接近窗口
-+	return chain[chain.length - 1];
-+}
- 
+-
 -	const changeLog = h('button', { className: 'base-style-button-secondary' }, '📄更新日志');
 -	changeLog.onclick = () => BackgroundProject.scripts.update.methods.showChangelog();
-+/** 面板窗口尺寸：模块级保存，面板频繁重渲染后需重新应用 *//** 面板窗口尺寸：模块级保存，面板频繁重渲染后需重新应用 */
-+/** 面板结构与结论各打印一次，避免刷屏 */
-+let panelChainLogged = false;
-+let panelChainLogged2 = false;
- 
+-
 -	const closeGuide = h('button', { className: 'base-style-button-secondary' }, '📄如何关闭脚本？');
 -	closeGuide.onclick = () =>
 -		window.open('https://docs.ocsjs.com/docs/script#%E5%85%B3%E9%97%AD%E8%84%9A%E6%9C%AC%E6%95%99%E7%A8%8B', '_blank');
-+const panelSize = { width: 0, height: 0 };
- 
+-
 -	return h('div', { className: 'user-guide' }, [
 -		h('div', [
 -			h('div', { style: { marginBottom: '4px', fontWeight: 'bold' } }, [
 -				'✨兼容的网课平台：',
 -				h('span', { className: 'secondary', style: { fontWeight: 'normal' } }, '（未适配的平台将无法运行，请等待适配）')
 -			]),
-+/**
-+ * 让脚本面板支持拖拽缩放。
-+ *
-+ * 面板位于 closed shadow root 内，外部无法注入样式、也取不到窗口元素；
-+ * 但 panel 实例的元素就在 shadow 树里，可沿 DOM 向上找到浮动窗口后直接设置尺寸。
-+ *
-+ * 面板会随搜索结果频繁重渲染（框架可能重置尺寸），因此每次都重新应用保存的尺寸。
-+ * 全部包在 try/catch 内：找不到窗口元素时静默跳过，不影响面板本身。
-+ */
-+/**
-+ * 把缩放诊断显示在面板里（临时诊断用）。
-+ *
-+ * 面板在 closed shadow root 内，控制台信息用户不易取到；
-+ * 直接显示在界面上，用户截图即可完成取证。
-+ */
-+function showScaleDiag(container: HTMLElement, text: string) {
-+	try {
-+		const el = h('div', {
-+			style: {
-+				margin: '6px 0',
-+				padding: '6px 8px',
-+				fontSize: '12px',
-+				lineHeight: '1.5',
-+				color: '#555',
-+				background: '#fffbe6',
-+				border: '1px dashed #d4a017',
-+				borderRadius: '4px',
-+				whiteSpace: 'pre-wrap',
-+				wordBreak: 'break-all'
-+			}
-+		});
-+		el.textContent = text;
-+		container.appendChild(el);
-+	} catch {
-+		// 诊断显示失败不影响功能
-+	}
-+}
- 
+-
 -			h(
 -				'div',
 -				{ style: { display: 'flex', flexWrap: 'wrap', gap: '4px', maxWidth: '400px' } },
@@ -2635,122 +2530,10 @@ index aadb3d9..3862996 100644
 -		])
 -	]);
 -};
-+function enablePanelResizable(panel: any) {
-+	try {
-+		const body = panel && panel.body ? (panel.body as HTMLElement) : undefined;
-+		if (!body) {
-+			console.warn('[CXStudy 缩放] panel.body 不存在，无法挂载拖拽柄');
-+			return;
-+		}
-+
-+		const chain = collectPanelChain(body);
-+		const describe = (el: HTMLElement) => {
-+			let pos = '?';
-+			try {
-+				pos = getComputedStyle(el).position;
-+			} catch {
-+				pos = 'err';
-+			}
-+			const cls = String(el.className || '').slice(0, 32);
-+			return el.tagName.toLowerCase() + (cls ? '.' + cls : '') + '(' + pos + ')';
-+		};
-+
-+		// 诊断：把祖先链与最终选择打印出来（每次页面各一次），用于定位真正的窗口元素
-+		if (!panelChainLogged) {
-+			panelChainLogged = true;
-+			console.info('[CXStudy 缩放] 祖先链: ' + chain.map((el, i) => i + ':' + describe(el)).join('  >  '));
-+		}
-+
-+		const win = findPanelWindow(body);
-+		if (!win) {
-+			console.warn('[CXStudy 缩放] 未找到可作为窗口的元素，已跳过（不影响面板功能）');
-+			showScaleDiag(body, '[CXStudy 缩放诊断] 未找到可作为窗口的元素\n链条: ' + chain.map((el, i) => i + ':' + describe(el)).join(' > '));
-+			return;
-+		}
-+		if (!panelChainLogged2) {
-+			panelChainLogged2 = true;
-+			console.info('[CXStudy 缩放] 拖拽柄目标 = ' + describe(win) + '；该元素是面板内容容器本身吗？ ' + (win === body));
-+		}
-+		// 界面内显示结论：控制台信息用户不易取到，显示在面板上便于截图取证
-+		showScaleDiag(
-+			body,
-+			'[CXStudy 缩放诊断]\n链条: ' +
-+				chain.map((el, i) => i + ':' + describe(el)).join(' > ') +
-+				'\n拖拽柄目标: ' +
-+				describe(win) +
-+				'（是否就是内容容器: ' +
-+				String(win === body) +
-+				'）\n窗口尺寸: ' +
-+				Math.round(win.getBoundingClientRect().width) +
-+				'x' +
-+				Math.round(win.getBoundingClientRect().height)
-+		);
-+
-+		// 用 !important 写入，并放宽上下限：
-+		// 窗口自带样式里可能有 max-width 之类的限制，普通内联样式会被压住（实测窗口仅 624x220）
-+		const applySize = (w: number, hgt: number) => {
-+			win.style.setProperty('width', w + 'px', 'important');
-+			win.style.setProperty('height', hgt + 'px', 'important');
-+			win.style.setProperty('max-width', '98vw', 'important');
-+			win.style.setProperty('max-height', '96vh', 'important');
-+			win.style.setProperty('min-width', '280px', 'important');
-+			win.style.setProperty('min-height', '200px', 'important');
-+		};
-+		if (panelSize.width) applySize(panelSize.width, panelSize.height);
-+
-+		const w = win as any;
-+		if (w.__cxstudyResizable) return;
-+		w.__cxstudyResizable = true;
-+
-+		if (getComputedStyle(win).position === 'static') win.style.position = 'relative';
-+		const handle = h('div', {
-+			title: '拖动调整面板大小',
-+			style: {
-+				position: 'absolute',
-+				right: '0',
-+				bottom: '0',
-+				width: '16px',
-+				height: '16px',
-+				cursor: 'nwse-resize',
-+				zIndex: '2147483647',
-+				background: 'linear-gradient(135deg, rgba(0,0,0,0) 50%, #9a9a9a 50%)'
-+			}
-+		});
-+		win.appendChild(handle);
-+
-+		// 捕获阶段监听：避免被窗口自身的拖拽/点击逻辑先吃掉
-+		handle.addEventListener(
-+			'mousedown',
-+			(e: MouseEvent) => {
-+			e.preventDefault();
-+			e.stopPropagation();
-+			const startX = e.clientX;
-+			const startY = e.clientY;
-+			const rect = win.getBoundingClientRect();
-+			const move = (ev: MouseEvent) => {
-+				panelSize.width = Math.max(280, Math.round(rect.width + (ev.clientX - startX)));
-+				panelSize.height = Math.max(220, Math.round(rect.height + (ev.clientY - startY)));
-+				applySize(panelSize.width, panelSize.height);
-+			};
-+			const up = () => {
-+				document.removeEventListener('mousemove', move);
-+				document.removeEventListener('mouseup', up);
-+			};
-+				document.addEventListener('mousemove', move);
-+				document.addEventListener('mouseup', up);
-+			},
-+			true
-+		);
-+	} catch (e) {
-+		console.warn('[CXStudy 缩放] 初始化异常: ' + ((e as any) && (e as any).message ? (e as any).message : e));
-+	}
-+}
  
--/** 按题型区分"答案无法作答"的提示文案 */
+ /** 按题型区分"答案无法作答"的提示文案 */
  const typeMismatchTexts: Record<string, string> = {
- 	single: '⚠️ 给出的答案和选项不匹配，可能是题库答案错误',
- 	multiple: '⚠️ 给出的答案和选项不匹配，可能是题库答案错误',
-@@ -1725,22 +1226,12 @@ function createSearchResultAlertElement(result: SimplifyWorkResult) {
+@@ -1725,22 +1012,12 @@ function createSearchResultAlertElement(result: SimplifyWorkResult) {
  	if (result.requested === false && result.resolved === false) {
  		info = h('div', { className: 'result-info unresolved' }, '等待搜索中... 🔍');
  	} else if (err) {
