@@ -1320,7 +1320,7 @@ index c9f9c7a..1f7adf3 100644
  					.map((m) => {
  						const url = window.location.href;
 diff --git a/packages/scripts/src/projects/common.ts b/packages/scripts/src/projects/common.ts
-index aadb3d9..2d2913b 100644
+index aadb3d9..e293e0c 100644
 --- a/packages/scripts/src/projects/common.ts
 +++ b/packages/scripts/src/projects/common.ts
 @@ -1,4 +1,5 @@
@@ -1644,7 +1644,7 @@ index aadb3d9..2d2913b 100644
 -								const confirmed = await confirmRiskyAnswerWrappers(awsResult);
 -								if (!confirmed) {
 -									return false;
- 								}
+-								}
 -
 -								// 全局跨域提交改动事件
 -								CommonEvents.emitAnswererChanged(awsResult, CommonProject.scripts.settings.cfg.answererWrappers);
@@ -2074,7 +2074,7 @@ index aadb3d9..2d2913b 100644
 -									if (remote === false) {
 -										renderAnswererList();
 -									}
--								}
+ 								}
 -							);
 -							if (modal) {
 -								const originalRemove = modal.remove.bind(modal);
@@ -2429,7 +2429,7 @@ index aadb3d9..2d2913b 100644
  		edgeMinimize: new Script({
  			name: '边缘最小化图标模式',
  			matches: [['所有页面', /.*/]],
-@@ -1604,114 +999,113 @@ function insertCopyableStyle() {
+@@ -1604,114 +999,138 @@ function insertCopyableStyle() {
  	document.head.append(style);
  }
  
@@ -2462,7 +2462,7 @@ index aadb3d9..2d2913b 100644
 -									h('b', script.name),
 -									$ui.notes([
 -										h('span', ['操作面板：', script.hideInPanel ? '隐藏' : '显示']),
- 
+-
 -										[
 -											'运行页面：',
 -											h(
@@ -2497,32 +2497,25 @@ index aadb3d9..2d2913b 100644
 -			])
 -		});
 -	};
--
+ 
 -	const gotoHome = h('button', { className: 'base-style-button-secondary' }, '🏡官网教程');
 -	gotoHome.onclick = () => window.open('https://docs.ocsjs.com', '_blank');
--
--	const contactUs = h('button', { className: 'base-style-button-secondary' }, '🗨️交流群');
--	contactUs.onclick = () => window.open('https://docs.ocsjs.com/docs/about#交流方式', '_blank');
--
--	const changeLog = h('button', { className: 'base-style-button-secondary' }, '📄更新日志');
--	changeLog.onclick = () => BackgroundProject.scripts.update.methods.showChangelog();
 +/** 按题型区分"答案无法作答"的提示文案 */
 +/**
-+ * 从面板内容元素向上寻找真正的「浮动窗口」元素。
++ * 从面板内容元素向上收集整条祖先链（含跨 shadow 边界）。
 + *
-+ * panel.body 只是窗口内部的内容容器，直接给它设宽高不会改变窗口尺寸；
-+ * 因此需要沿 DOM 向上（并跨 shadow 边界）找到第一个定位为 fixed/absolute 的祖先元素。
++ * panel.body 只是窗口内部的内容容器；各脚本面板共用同一个外层窗口，
++ * 因此必须拿到**最外层**那个浮动窗口才能正确缩放，拿到内层容器会把
++ * 拖拽柄放到共享内容区的角落（看起来就像"塞进了某个设置面板"）。
 + */
-+function findPanelWindow(el: HTMLElement): HTMLElement {
++function collectPanelChain(el: HTMLElement): HTMLElement[] {
++	const chain: HTMLElement[] = [];
++	const seen = new Set<HTMLElement>();
 +	let node: HTMLElement | null = el;
 +	let hops = 0;
-+	while (node && hops++ < 15) {
-+		try {
-+			const pos = getComputedStyle(node).position;
-+			if (pos === 'fixed' || pos === 'absolute') return node;
-+		} catch {
-+			// 计算样式取不到时继续向上
-+		}
++	while (node && hops++ < 20 && !seen.has(node)) {
++		seen.add(node);
++		chain.push(node);
 +		const parent: HTMLElement | null = node.parentElement;
 +		if (parent) {
 +			node = parent;
@@ -2535,13 +2528,43 @@ index aadb3d9..2d2913b 100644
 +		}
 +		break;
 +	}
-+	return el;
++	return chain;
++}
+ 
+-	const contactUs = h('button', { className: 'base-style-button-secondary' }, '🗨️交流群');
+-	contactUs.onclick = () => window.open('https://docs.ocsjs.com/docs/about#交流方式', '_blank');
++/** 判断元素是否为"被定位"的盒子（fixed/absolute/relative 都算） */
++function isPositioned(el: HTMLElement): boolean {
++	try {
++		const pos = getComputedStyle(el).position;
++		return pos === 'fixed' || pos === 'absolute' || pos === 'relative';
++	} catch {
++		return false;
++	}
++}
+ 
+-	const changeLog = h('button', { className: 'base-style-button-secondary' }, '📄更新日志');
+-	changeLog.onclick = () => BackgroundProject.scripts.update.methods.showChangelog();
++/**
++ * 找到真正的浮动窗口元素。
++ *
++ * 取祖先链里**最外层**的被定位元素：内层容器尺寸通常跟随外层窗口，
++ * 所以只要改外层即可；若整条链都没有定位元素，则退回最外层元素本身。
++ */
++function findPanelWindow(el: HTMLElement): HTMLElement | undefined {
++	const chain = collectPanelChain(el);
++	if (chain.length <= 1) return undefined;
++	for (let i = chain.length - 1; i >= 0; i--) {
++		if (isPositioned(chain[i])) return chain[i];
++	}
++	// 没有定位元素：用链上最外层（shadow 宿主），至少比内容容器更接近窗口
++	return chain[chain.length - 1];
 +}
  
 -	const closeGuide = h('button', { className: 'base-style-button-secondary' }, '📄如何关闭脚本？');
 -	closeGuide.onclick = () =>
 -		window.open('https://docs.ocsjs.com/docs/script#%E5%85%B3%E9%97%AD%E8%84%9A%E6%9C%AC%E6%95%99%E7%A8%8B', '_blank');
-+/** 面板窗口尺寸：模块级保存，面板频繁重渲染后需重新应用 */
++/** 面板窗口尺寸：模块级保存，面板频繁重渲染后需重新应用 *//** 面板窗口尺寸：模块级保存，面板频繁重渲染后需重新应用 */
 +const panelSize = { width: 0, height: 0 };
  
 -	return h('div', { className: 'user-guide' }, [
@@ -2564,7 +2587,7 @@ index aadb3d9..2d2913b 100644
 +		const body = panel && panel.body ? (panel.body as HTMLElement) : undefined;
 +		if (!body) return;
 +		const win = findPanelWindow(body);
-+		if (win === body) return; // 没找到外层窗口，不做无意义的处理
++		if (!win) return; // 找不到外层窗口就不处理，避免把柄放到内容容器上
 +
 +		// 1) 应用已保存的尺寸（重渲染后恢复）
 +		if (panelSize.width) {
@@ -2646,7 +2669,7 @@ index aadb3d9..2d2913b 100644
  const typeMismatchTexts: Record<string, string> = {
  	single: '⚠️ 给出的答案和选项不匹配，可能是题库答案错误',
  	multiple: '⚠️ 给出的答案和选项不匹配，可能是题库答案错误',
-@@ -1725,22 +1119,12 @@ function createSearchResultAlertElement(result: SimplifyWorkResult) {
+@@ -1725,22 +1144,12 @@ function createSearchResultAlertElement(result: SimplifyWorkResult) {
  	if (result.requested === false && result.resolved === false) {
  		info = h('div', { className: 'result-info unresolved' }, '等待搜索中... 🔍');
  	} else if (err) {
