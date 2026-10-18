@@ -10,14 +10,14 @@ index 675a8fb..16d156f 100644
 +# 构建产物（本地 gulp 输出，不入库；对应 release/ocs.user.js）
 +release/
 diff --git a/package.json b/package.json
-index a715d35..1e730d9 100644
+index a715d35..6290fb6 100644
 --- a/package.json
 +++ b/package.json
 @@ -1,6 +1,6 @@
  {
  	"name": "ocsjs",
 -	"version": "5.2.1",
-+	"version": "5.2.1-cxstudy.1",
++	"version": "5.2.1-cxstudy.2",
  	"description": "ocs - online course script 在线网络课程辅助工具",
  	"types": "./lib/src/core/index.d.ts",
  	"main": "./lib/src/core/index.js",
@@ -12719,7 +12719,7 @@ index 74b7d18..0000000
 -	readNotes
 -};
 diff --git a/scripts/build-core.js b/scripts/build-core.js
-index 2d2f0e9..1b33cbd 100644
+index 2d2f0e9..8d08023 100644
 --- a/scripts/build-core.js
 +++ b/scripts/build-core.js
 @@ -6,7 +6,7 @@ const util = require('util');
@@ -12783,19 +12783,22 @@ index 2d2f0e9..1b33cbd 100644
  					.flat()
  			)
  		);
-@@ -76,23 +96,29 @@ async function createUserJs() {
+@@ -76,23 +96,31 @@ async function createUserJs() {
  				gap: '\t'.repeat(4)
  			},
  			metadata: {
 -				name: 'OCS 网课助手',
-+				name: 'CXStudy 超星助手',
- 				version: version,
+-				version: version,
 -				description: [
 -					'OCS(online-course-script) 网课助手，官网 https://docs.ocsjs.com ，专注于帮助大学生从网课中释放出来',
 -					'让自己的时间把握在自己的手中，拥有人性化的操作页面，流畅的步骤提示，支持 ',
 -					projectList,
 -					'等网课的学习，作业。具体的功能请查看脚本悬浮窗中的教程页面。'
 -				].join(' '),
++				name: 'CXStudy 超星助手',
++				// 版本号显式写出：package.json 的 version 在本构建流程里没有生效（产物仍是旧版本号），
++				// 而版本号决定油猴能否识别更新，必须准确。发版时递增此处与 package.json。
++				version: '5.2.1-cxstudy.2',
 +				description:
 +					'超星学习通专用助手：以真实速率推进视频/音频/文档任务点，章节测验自动作答（支持图片题）。' +
 +					'基于 MIT 协议的 OCS 网课助手（https://github.com/ocsjs/ocsjs）衍生，仅保留超星学习通平台。',
@@ -12827,7 +12830,7 @@ index 2d2f0e9..1b33cbd 100644
  				match: matchMetadata,
  				grant: [
  					'GM_info',
-@@ -106,13 +132,13 @@ async function createUserJs() {
+@@ -106,13 +134,13 @@ async function createUserJs() {
  					'GM_notification',
  					'GM_xmlhttpRequest',
  					'GM_getResourceText',
@@ -12843,7 +12846,7 @@ index 2d2f0e9..1b33cbd 100644
  			},
  			entry: path.join(__dirname, '../packages/scripts/entry.js'),
  			dist: path.join(__dirname, distPath, 'ocs.user.js')
-@@ -122,8 +148,20 @@ async function createUserJs() {
+@@ -122,8 +150,20 @@ async function createUserJs() {
  	const officialOpts = createOptions();
  	console.log('CreateUserScript: ', officialOpts.metadata.name, officialOpts.dist);
  	await createUserScript(officialOpts);
@@ -12866,7 +12869,7 @@ index 2d2f0e9..1b33cbd 100644
  
  	/** 创建调试脚本 */
  	const devOpts = createOptions();
-@@ -141,18 +179,6 @@ async function createUserJs() {
+@@ -141,18 +181,6 @@ async function createUserJs() {
  	);
  	console.log('createUserScript: ', devOpts.metadata.name, devOpts.dist);
  	await createUserScript(devOpts);
