@@ -1126,10 +1126,16 @@ index c9f9c7a..73296a8 100644
  					.map((m) => {
  						const url = window.location.href;
 diff --git a/packages/scripts/src/projects/common.ts b/packages/scripts/src/projects/common.ts
-index aadb3d9..1a37ffe 100644
+index aadb3d9..a6b1107 100644
 --- a/packages/scripts/src/projects/common.ts
 +++ b/packages/scripts/src/projects/common.ts
-@@ -8,7 +8,7 @@ import {
+@@ -1,4 +1,5 @@
+ import debounce from 'lodash/debounce';
++import { testModelConnection } from '../utils/cx-model';
+ import {
+ 	defaultAnswerWrapperHandler,
+ 	AnswerWrapperParser,
+@@ -8,7 +9,7 @@ import {
  } from '@ocsjs/core';
  import { $message, h, $gm, $store, Project, Script, $modal, $ui, MessageElement, cors } from 'easy-us';
  import type { AnswererWrapper } from '@ocsjs/core';
@@ -1138,7 +1144,7 @@ index aadb3d9..1a37ffe 100644
  import { BackgroundProject } from './background';
  import { enableCopy } from '../utils';
  import { SearchInfosElement } from '../elements/search.infos';
-@@ -19,6 +19,7 @@ import {
+@@ -19,6 +20,7 @@ import {
  	isAnswererWrappersSupportImageOptimize
  } from '../utils/work';
  import { getAnswererConfigProvider, openAnswererConnect, waitForAnswererConfig } from '../utils/answerer-connect';
@@ -1146,7 +1152,7 @@ index aadb3d9..1a37ffe 100644
  import { confirmRiskyAnswerWrappers } from '../utils/answer-wrapper-security';
  import { initEdgeMinimize } from '../utils/edge-minimize';
  import {
-@@ -89,14 +90,14 @@ const answererListHandlers = {
+@@ -89,14 +91,14 @@ const answererListHandlers = {
  				name
  			];
  			$message.warn({
@@ -1163,7 +1169,7 @@ index aadb3d9..1a37ffe 100644
  				duration: 3
  			});
  		}
-@@ -123,36 +124,6 @@ const state = {
+@@ -123,41 +125,13 @@ const state = {
  					});
  				}
  			},
@@ -1200,7 +1206,15 @@ index aadb3d9..1a37ffe 100644
  		}
  	},
  	setting: {
-@@ -192,12 +163,23 @@ export const CommonProject = Project.create({
+ 		/** 图片题优化兼容性提示消息（可移除） */
+-		imageOptimizeMessage: undefined as MessageElement | undefined
++		imageOptimizeMessage: undefined as MessageElement | undefined,
++		/** 模型 API Key 输入框引用（供显示/隐藏按钮切换） */
++		apiKeyInput: undefined as HTMLInputElement | undefined
+ 	}
+ };
+ 
+@@ -192,12 +166,23 @@ export const CommonProject = Project.create({
  				notes: {
  					defaultValue: $ui.notes([
  						'✨鼠标移动到按钮或者输入框，可以看到提示！',
@@ -1227,7 +1241,7 @@ index aadb3d9..1a37ffe 100644
  					defaultValue: [] as AnswererWrapper[]
  				},
  				/**
-@@ -215,573 +197,85 @@ export const CommonProject = Project.create({
+@@ -215,572 +200,128 @@ export const CommonProject = Project.create({
  					defaultValue: [] as string[]
  				},
  
@@ -1344,7 +1358,95 @@ index aadb3d9..1a37ffe 100644
 -
 -								// 判断题库是否超过限制（10个），如果超过则提示
 -								if (awsResult.length > 10) {
--									$modal.alert({
++					defaultValue: false
++				},
++				// 图片题：把题干/选项里的图片一并发给（支持识图的）模型
++				cxModelVision: {
++					label: '允许图片题（题目图片一起发给模型）',
++					attrs: {
++						type: 'checkbox',
++						title:
++							'开启后：自动抓取题干与选项里的图片，转成 base64 一并发给模型。\n成本：DeepSeek 文档口径为单图最多占 384 tokens，与文本同价。\n适用：题干或选项是图片、纯文字答不出的题。\n本项会自动等效于开启上游的「图片题优化」，无需另外设置。'
++					},
++					defaultValue: false
++				},
++				// 截图兜底：文本/图片 URL 都拿不到时，把题目区域渲染成图片
++				cxScreenshot: {
++					label: '截图兜底（题目渲染成图片给模型）',
++					attrs: {
++						type: 'checkbox',
++						title:
++							'开启后：当题干文本为空、或题目图片转换失败时，把题目区域渲染成图片一并发给模型（需同时开启「允许图片题」）。\n已知限制：SVG 渲染不加载页面自定义字体，因此对「混淆字体」类题目可能仍然无效；复杂布局的还原是近似的。\n只在文本路径明显不够用时才截图，不做无条件截图。'
++					},
++					defaultValue: false
++				},
++				// ===== 作业/考试手动触发（默认关闭） =====
++				cxWorkEnabled: {
++					separator: '作业/考试自动作答（默认关闭）',
++					label: '开启作业/考试自动作答',
++					attrs: {
++						type: 'checkbox',
++						title:
++							'默认关闭。开启后仍不会自动开始：进入作业/考试页面会先弹出预检结果与风险提示，必须由你手动点「开始作答」。'
++					},
++					defaultValue: false
++				},
++				cxWorkConsent: {
++					label: '责任声明：我已了解风险由我自己承担',
++					attrs: {
++						type: 'checkbox',
++						title:
++							'勾选后方可启用作业/考试自动作答。你需要自行承担全部风险，包括但不限于：成绩判定、学术诚信处理（部分学校按作弊处理）、课程学习记录异常。'
++					},
++					defaultValue: false
++				},
++				cxExamEnabled: {
++					label: '考试单独授权',
++					attrs: {
++						type: 'checkbox',
++						title:
++							'考试风险显著高于作业（多数学校按学术不端处理），因此需单独授权。未勾选时遇到考试页面会直接拒绝作答。\n人脸识别与人机验证码不会因授权而放行 —— 出现即停手，必须人工完成。'
++					},
++					defaultValue: false
++				},
++				cxModelApiKey: {
++					label: '模型 API Key',
++					elementClassName: 'config-details',
++					// 密码框遮罩：面板里不再明文显示 Key
++					attrs: {
++						type: 'password',
++						autocomplete: 'off',
++						spellcheck: false,
++						title:
++							'只保存在本地脚本存储中，不会写入任何文件；除所选提供商外不会发往任何地址。未填写时不会发出任何请求。\n' +
++							'安全边界（如实说明）：浏览器本地存储无法对“能访问本机或浏览器配置的人”保密，' +
++							'加密密钥若也存在本地等于自我安慰。有效的做法是——① 界面遮罩、不写日志 ② 不用时一键清除 ' +
++							'③ 使用“有额度上限、可随时吊销”的受限 Key。'
++					},
++					defaultValue: '',
++					onload(el) {
++						// 供「显示/隐藏」按钮切换用
++						state.setting.apiKeyInput = el as unknown as HTMLInputElement;
++					},
++					suffixSlot() {
++						const mkBtn = (text: string, title: string, onclick: () => void) => {
++							const b = h('button', { className: 'base-style-button-secondary', title }, text);
++							b.onclick = onclick;
++							return b;
++						};
++						const cfg = CommonProject.scripts.settings.cfg as any;
++						return h('div', { style: { display: 'inline-flex', gap: '4px', flexWrap: 'wrap' } }, [
++							mkBtn('👁', '显示 / 隐藏 Key', () => {
++								const input = state.setting.apiKeyInput;
++								if (!input) return;
++								input.type = input.type === 'password' ? 'text' : 'password';
++							}),
++							mkBtn('🔌 测试连接', '用最小请求验证“提供商 + Key”是否可用', async () => {
++								const res = await testModelConnection(cfg.cxModelProvider, cfg.cxModelApiKey);
++								if (res.ok) {
++									$message.success({ content: res.message, duration: 8 });
++								} else {
+ 									$modal.alert({
 -										content: h('div', [
 -											'题库配置过多可能会导致答题效率降低，建议不超过10个题库，目前解析到' +
 -												awsResult.length +
@@ -1386,8 +1488,11 @@ index aadb3d9..1a37ffe 100644
 -													cancelButtonText: '稍后刷新'
 -											  }
 -											: {})
--									});
--								}
++										title: '⛔ 模型连接失败',
++										content: $ui.notes([res.message, '请检查 Key 是否正确、是否有该模型权限、网络是否可达。']),
++										confirmButtonText: '知道了'
+ 									});
+ 								}
 -
 -								// 格式化文本
 -								textarea.value = JSON.stringify(awsResult, null, 4);
@@ -1814,70 +1919,18 @@ index aadb3d9..1a37ffe 100644
 -						this.onclick = () => openAnswererModal(getAnswererConfigProvider() ? 'official' : 'custom');
 -						// 暴露给「⋯」下拉框的选项进入对应配置弹窗（自定义题库仅从此处进入）
 -						(this as any).openAnswererModal = openAnswererModal;
--					}
-+					defaultValue: false
-+				},
-+				// 图片题：把题干/选项里的图片一并发给（支持识图的）模型
-+				cxModelVision: {
-+					label: '允许图片题（题目图片一起发给模型）',
-+					attrs: {
-+						type: 'checkbox',
-+						title:
-+							'开启后：自动抓取题干与选项里的图片，转成 base64 一并发给模型。\n成本：DeepSeek 文档口径为单图最多占 384 tokens，与文本同价。\n适用：题干或选项是图片、纯文字答不出的题。\n本项会自动等效于开启上游的「图片题优化」，无需另外设置。'
-+					},
-+					defaultValue: false
-+				},
-+				// 截图兜底：文本/图片 URL 都拿不到时，把题目区域渲染成图片
-+				cxScreenshot: {
-+					label: '截图兜底（题目渲染成图片给模型）',
-+					attrs: {
-+						type: 'checkbox',
-+						title:
-+							'开启后：当题干文本为空、或题目图片转换失败时，把题目区域渲染成图片一并发给模型（需同时开启「允许图片题」）。\n已知限制：SVG 渲染不加载页面自定义字体，因此对「混淆字体」类题目可能仍然无效；复杂布局的还原是近似的。\n只在文本路径明显不够用时才截图，不做无条件截图。'
-+					},
-+					defaultValue: false
-+				},
-+				// ===== 作业/考试手动触发（默认关闭） =====
-+				cxWorkEnabled: {
-+					separator: '作业/考试自动作答（默认关闭）',
-+					label: '开启作业/考试自动作答',
-+					attrs: {
-+						type: 'checkbox',
-+						title:
-+							'默认关闭。开启后仍不会自动开始：进入作业/考试页面会先弹出预检结果与风险提示，必须由你手动点「开始作答」。'
-+					},
-+					defaultValue: false
-+				},
-+				cxWorkConsent: {
-+					label: '责任声明：我已了解风险由我自己承担',
-+					attrs: {
-+						type: 'checkbox',
-+						title:
-+							'勾选后方可启用作业/考试自动作答。你需要自行承担全部风险，包括但不限于：成绩判定、学术诚信处理（部分学校按作弊处理）、课程学习记录异常。'
-+					},
-+					defaultValue: false
-+				},
-+				cxExamEnabled: {
-+					label: '考试单独授权',
-+					attrs: {
-+						type: 'checkbox',
-+						title:
-+							'考试风险显著高于作业（多数学校按学术不端处理），因此需单独授权。未勾选时遇到考试页面会直接拒绝作答。\n人脸识别与人机验证码不会因授权而放行 —— 出现即停手，必须人工完成。'
-+					},
-+					defaultValue: false
-+				},
-+				cxModelApiKey: {
-+					label: '模型 API Key',
-+					attrs: {
-+						type: 'text',
-+						title:
-+							'只保存在本地脚本存储中，不会写入任何文件；除所选提供商外不会发往任何地址。\n未填写时不会发出任何请求。'
-+					},
-+					defaultValue: ''
++							}),
++							mkBtn('🗑 清除', '从本地存储中删除已保存的 API Key', () => {
++								cfg.cxModelApiKey = '';
++								const input = state.setting.apiKeyInput;
++								if (input) input.value = '';
++								$message.success({ content: '已清除本地保存的 API Key', duration: 6 });
++							})
++						]);
+ 					}
  				},
  				upload: {
- 					label: '答案提交方式（提交率）',
-@@ -824,30 +318,6 @@ export const CommonProject = Project.create({
+@@ -824,30 +365,6 @@ export const CommonProject = Project.create({
  							'当章节测试左上角并没有黄色任务点的时候依然进行答题（没有任务点说明此作业可能不计入总成绩，如果老师要求则可以开启）'
  					}
  				},
@@ -1908,7 +1961,7 @@ index aadb3d9..1a37ffe 100644
  				advancedSettings: {
  					...dropdownStyle,
  					defaultValue: false,
-@@ -875,9 +345,8 @@ export const CommonProject = Project.create({
+@@ -875,9 +392,8 @@ export const CommonProject = Project.create({
  					attrs: {
  						type: 'checkbox',
  						title:
@@ -1920,7 +1973,7 @@ index aadb3d9..1a37ffe 100644
  					},
  					defaultValue: true
  				},
-@@ -996,7 +465,7 @@ export const CommonProject = Project.create({
+@@ -996,7 +512,7 @@ export const CommonProject = Project.create({
  					]
  				},
  				enableQuestionCaches: {
@@ -1929,7 +1982,7 @@ index aadb3d9..1a37ffe 100644
  					defaultValue: true,
  					attrs: { type: 'checkbox' },
  					suffixSlot: function () {
-@@ -1020,8 +489,14 @@ export const CommonProject = Project.create({
+@@ -1020,8 +536,14 @@ export const CommonProject = Project.create({
  						/**
  						 * 过滤掉被禁用的题库
  						 */
@@ -1946,7 +1999,7 @@ index aadb3d9..1a37ffe 100644
  						);
  
  						return workOptions;
-@@ -1092,9 +567,7 @@ export const CommonProject = Project.create({
+@@ -1092,9 +614,7 @@ export const CommonProject = Project.create({
  							content: h('div', [
  								'当前题库配置暂不支持图片、公式等题目处理',
  								h('br'),
@@ -1957,7 +2010,7 @@ index aadb3d9..1a37ffe 100644
  							]),
  							duration: 0,
  							onClose: () => {
-@@ -1128,7 +601,7 @@ export const CommonProject = Project.create({
+@@ -1128,7 +648,7 @@ export const CommonProject = Project.create({
  					defaultValue: 0
  				},
  				/**
@@ -1966,7 +2019,7 @@ index aadb3d9..1a37ffe 100644
  				 * 动态答题器不会自动清空搜索结果，因此需要显示手动清空按钮
  				 */
  				dynamicResults: {
-@@ -1435,7 +908,7 @@ export const CommonProject = Project.create({
+@@ -1435,7 +955,7 @@ export const CommonProject = Project.create({
  			namespace: 'common.online-search',
  			configs: {
  				notes: {
@@ -1975,7 +2028,7 @@ index aadb3d9..1a37ffe 100644
  				},
  
  				selectSearch: {
-@@ -1669,30 +1142,13 @@ const createGuide = () => {
+@@ -1669,30 +1189,13 @@ const createGuide = () => {
  		});
  	};
  
@@ -2008,7 +2061,7 @@ index aadb3d9..1a37ffe 100644
  					const btn = h('button', { className: 'base-style-button-secondary' }, [project.name]);
  					btn.onclick = () => {
  						showProjectDetails(project);
-@@ -1700,13 +1156,6 @@ const createGuide = () => {
+@@ -1700,13 +1203,6 @@ const createGuide = () => {
  					return h('span', [btn]);
  				})
  			)
@@ -2022,7 +2075,7 @@ index aadb3d9..1a37ffe 100644
  		])
  	]);
  };
-@@ -1725,22 +1174,12 @@ function createSearchResultAlertElement(result: SimplifyWorkResult) {
+@@ -1725,22 +1221,12 @@ function createSearchResultAlertElement(result: SimplifyWorkResult) {
  	if (result.requested === false && result.resolved === false) {
  		info = h('div', { className: 'result-info unresolved' }, '等待搜索中... 🔍');
  	} else if (err) {
@@ -10728,10 +10781,10 @@ index 2b9c7ed..0000000
 -}
 diff --git a/packages/scripts/src/utils/cx-model.ts b/packages/scripts/src/utils/cx-model.ts
 new file mode 100644
-index 0000000..7086153
+index 0000000..c33952b
 --- /dev/null
 +++ b/packages/scripts/src/utils/cx-model.ts
-@@ -0,0 +1,228 @@
+@@ -0,0 +1,306 @@
 +/**
 + * 本项目锁定的模型答题器。
 + *
@@ -10959,6 +11012,84 @@ index 0000000..7086153
 +/** 是否已配置可用的模型答题器 */
 +export function hasModelConfigured(provider: string, apiKey: string): boolean {
 +	return buildModelAnswererWrappers(provider, apiKey).length > 0;
++}
++
++/**
++ * 测试模型连通性：用最小请求验证「提供商 + API Key」是否真的可用。
++ *
++ * 用于面板上的「测试连接」，避免出现「填了 Key 但实际不可用」的情况
++ * （那时答题会静默失败，很难判断是模型问题还是题目问题）。
++ *
++ * 请求体刻意最小化（单个 ping、max_tokens=8），成本可忽略。
++ */
++export async function testModelConnection(
++	provider: string,
++	apiKey: string
++): Promise<{ ok: boolean; message: string }> {
++	const key = String(apiKey || '').trim();
++	if (!key) return { ok: false, message: '未填写 API Key' };
++
++	const p = CX_PROVIDERS[provider] || CX_PROVIDERS['opencode-go'];
++	// 占位符 ${__session} 由答题器运行时注入，测试时自行生成一个
++	const session = 'cxstudy-test-' + Date.now();
++	const headers = Object.assign(
++		{ Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
++		Object.fromEntries(
++			Object.entries(p.extraHeaders).map(([k, v]) => [k, String(v).replace('${__session}', session)])
++		)
++	);
++
++	try {
++		// 直接使用脚本管理器提供的 GM_xmlhttpRequest：
++		// 这样本模块不必在运行时导入 @ocsjs/core（那会连带加载 easy-us，
++		// 而它在模块顶层就引用 HTMLElement，导致本模块无法在无 DOM 环境加载）。
++		const res: any = await new Promise((resolve, reject) => {
++			const body = JSON.stringify({
++				model: CX_LOCKED_MODEL,
++				messages: [{ role: 'user', content: 'ping' }],
++				max_tokens: 8,
++				stream: false
++			});
++			// @ts-ignore GM_xmlhttpRequest 由脚本管理器注入
++			GM_xmlhttpRequest({
++				method: 'POST',
++				url: p.url,
++				headers,
++				data: body,
++				responseType: 'json',
++				timeout: 25000,
++				onload: (r: any) => {
++					if (r.status >= 200 && r.status < 300) {
++						let parsed = r.response;
++						if (typeof parsed === 'string') {
++							try {
++								parsed = JSON.parse(parsed);
++							} catch {
++								// 保留原文，交给下方判断
++							}
++						}
++						resolve(parsed);
++					} else {
++						const tail = r.responseText ? ' ' + String(r.responseText).slice(0, 180) : '';
++						reject(new Error('HTTP ' + r.status + tail));
++					}
++				},
++				onerror: (r: any) => reject(new Error('网络错误' + (r && r.error ? '：' + r.error : ''))),
++				ontimeout: () => reject(new Error('请求超时（25s）'))
++			});
++		});
++		const model = (res && res.model) || CX_LOCKED_MODEL;
++		return { ok: true, message: '连接正常：' + p.label + ' / ' + model };
++	} catch (e: any) {
++		const msg = String((e && e.message) || e);
++		if (/401|403|unauthor|invalid.*(key|token)|认证/i.test(msg)) {
++			return { ok: false, message: 'Key 无效或无权限（' + msg + '）' };
++		}
++		if (/404|not\s*found|model/i.test(msg)) {
++			return { ok: false, message: '模型不可用，可能该 Key 没有此模型权限（' + msg + '）' };
++		}
++		return { ok: false, message: '连接失败：' + msg };
++	}
 +}
 diff --git a/packages/scripts/src/utils/cx-screenshot.ts b/packages/scripts/src/utils/cx-screenshot.ts
 new file mode 100644
