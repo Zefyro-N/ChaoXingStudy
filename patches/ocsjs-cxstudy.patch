@@ -1320,7 +1320,7 @@ index c9f9c7a..1f7adf3 100644
  					.map((m) => {
  						const url = window.location.href;
 diff --git a/packages/scripts/src/projects/common.ts b/packages/scripts/src/projects/common.ts
-index aadb3d9..e293e0c 100644
+index aadb3d9..c0feaba 100644
 --- a/packages/scripts/src/projects/common.ts
 +++ b/packages/scripts/src/projects/common.ts
 @@ -1,4 +1,5 @@
@@ -2429,7 +2429,7 @@ index aadb3d9..e293e0c 100644
  		edgeMinimize: new Script({
  			name: '边缘最小化图标模式',
  			matches: [['所有页面', /.*/]],
-@@ -1604,114 +999,138 @@ function insertCopyableStyle() {
+@@ -1604,114 +999,169 @@ function insertCopyableStyle() {
  	document.head.append(style);
  }
  
@@ -2462,7 +2462,7 @@ index aadb3d9..e293e0c 100644
 -									h('b', script.name),
 -									$ui.notes([
 -										h('span', ['操作面板：', script.hideInPanel ? '隐藏' : '显示']),
--
+ 
 -										[
 -											'运行页面：',
 -											h(
@@ -2497,9 +2497,6 @@ index aadb3d9..e293e0c 100644
 -			])
 -		});
 -	};
- 
--	const gotoHome = h('button', { className: 'base-style-button-secondary' }, '🏡官网教程');
--	gotoHome.onclick = () => window.open('https://docs.ocsjs.com', '_blank');
 +/** 按题型区分"答案无法作答"的提示文案 */
 +/**
 + * 从面板内容元素向上收集整条祖先链（含跨 shadow 边界）。
@@ -2531,8 +2528,8 @@ index aadb3d9..e293e0c 100644
 +	return chain;
 +}
  
--	const contactUs = h('button', { className: 'base-style-button-secondary' }, '🗨️交流群');
--	contactUs.onclick = () => window.open('https://docs.ocsjs.com/docs/about#交流方式', '_blank');
+-	const gotoHome = h('button', { className: 'base-style-button-secondary' }, '🏡官网教程');
+-	gotoHome.onclick = () => window.open('https://docs.ocsjs.com', '_blank');
 +/** 判断元素是否为"被定位"的盒子（fixed/absolute/relative 都算） */
 +function isPositioned(el: HTMLElement): boolean {
 +	try {
@@ -2543,8 +2540,8 @@ index aadb3d9..e293e0c 100644
 +	}
 +}
  
--	const changeLog = h('button', { className: 'base-style-button-secondary' }, '📄更新日志');
--	changeLog.onclick = () => BackgroundProject.scripts.update.methods.showChangelog();
+-	const contactUs = h('button', { className: 'base-style-button-secondary' }, '🗨️交流群');
+-	contactUs.onclick = () => window.open('https://docs.ocsjs.com/docs/about#交流方式', '_blank');
 +/**
 + * 找到真正的浮动窗口元素。
 + *
@@ -2561,10 +2558,16 @@ index aadb3d9..e293e0c 100644
 +	return chain[chain.length - 1];
 +}
  
+-	const changeLog = h('button', { className: 'base-style-button-secondary' }, '📄更新日志');
+-	changeLog.onclick = () => BackgroundProject.scripts.update.methods.showChangelog();
++/** 面板窗口尺寸：模块级保存，面板频繁重渲染后需重新应用 *//** 面板窗口尺寸：模块级保存，面板频繁重渲染后需重新应用 */
++/** 面板结构与结论各打印一次，避免刷屏 */
++let panelChainLogged = false;
++let panelChainLogged2 = false;
+ 
 -	const closeGuide = h('button', { className: 'base-style-button-secondary' }, '📄如何关闭脚本？');
 -	closeGuide.onclick = () =>
 -		window.open('https://docs.ocsjs.com/docs/script#%E5%85%B3%E9%97%AD%E8%84%9A%E6%9C%AC%E6%95%99%E7%A8%8B', '_blank');
-+/** 面板窗口尺寸：模块级保存，面板频繁重渲染后需重新应用 *//** 面板窗口尺寸：模块级保存，面板频繁重渲染后需重新应用 */
 +const panelSize = { width: 0, height: 0 };
  
 -	return h('div', { className: 'user-guide' }, [
@@ -2585,16 +2588,9 @@ index aadb3d9..e293e0c 100644
 +function enablePanelResizable(panel: any) {
 +	try {
 +		const body = panel && panel.body ? (panel.body as HTMLElement) : undefined;
-+		if (!body) return;
-+		const win = findPanelWindow(body);
-+		if (!win) return; // 找不到外层窗口就不处理，避免把柄放到内容容器上
-+
-+		// 1) 应用已保存的尺寸（重渲染后恢复）
-+		if (panelSize.width) {
-+			win.style.width = panelSize.width + 'px';
-+			win.style.height = panelSize.height + 'px';
-+			win.style.maxWidth = '98vw';
-+			win.style.maxHeight = '96vh';
++		if (!body) {
++			console.warn('[CXStudy 缩放] panel.body 不存在，无法挂载拖拽柄');
++			return;
 +		}
  
 -			h(
@@ -2618,7 +2614,41 @@ index aadb3d9..e293e0c 100644
 -		])
 -	]);
 -};
-+		// 2) 拖拽柄只挂一次
++		const chain = collectPanelChain(body);
++		const describe = (el: HTMLElement) => {
++			let pos = '?';
++			try {
++				pos = getComputedStyle(el).position;
++			} catch {
++				pos = 'err';
++			}
++			const cls = String(el.className || '').slice(0, 32);
++			return el.tagName.toLowerCase() + (cls ? '.' + cls : '') + '(' + pos + ')';
++		};
++
++		// 诊断：把祖先链与最终选择打印出来（每次页面各一次），用于定位真正的窗口元素
++		if (!panelChainLogged) {
++			panelChainLogged = true;
++			console.info('[CXStudy 缩放] 祖先链: ' + chain.map((el, i) => i + ':' + describe(el)).join('  >  '));
++		}
++
++		const win = findPanelWindow(body);
++		if (!win) {
++			console.warn('[CXStudy 缩放] 未找到可作为窗口的元素，已跳过（不影响面板功能）');
++			return;
++		}
++		if (!panelChainLogged2) {
++			panelChainLogged2 = true;
++			console.info('[CXStudy 缩放] 拖拽柄目标 = ' + describe(win) + '；该元素是面板内容容器本身吗？ ' + (win === body));
++		}
++
++		if (panelSize.width) {
++			win.style.width = panelSize.width + 'px';
++			win.style.height = panelSize.height + 'px';
++			win.style.maxWidth = '98vw';
++			win.style.maxHeight = '96vh';
++		}
++
 +		const w = win as any;
 +		if (w.__cxstudyResizable) return;
 +		w.__cxstudyResizable = true;
@@ -2660,8 +2690,8 @@ index aadb3d9..e293e0c 100644
 +			document.addEventListener('mousemove', move);
 +			document.addEventListener('mouseup', up);
 +		});
-+	} catch {
-+		// 找不到窗口元素：不影响面板本身
++	} catch (e) {
++		console.warn('[CXStudy 缩放] 初始化异常: ' + ((e as any) && (e as any).message ? (e as any).message : e));
 +	}
 +}
  
@@ -2669,7 +2699,7 @@ index aadb3d9..e293e0c 100644
  const typeMismatchTexts: Record<string, string> = {
  	single: '⚠️ 给出的答案和选项不匹配，可能是题库答案错误',
  	multiple: '⚠️ 给出的答案和选项不匹配，可能是题库答案错误',
-@@ -1725,22 +1144,12 @@ function createSearchResultAlertElement(result: SimplifyWorkResult) {
+@@ -1725,22 +1175,12 @@ function createSearchResultAlertElement(result: SimplifyWorkResult) {
  	if (result.requested === false && result.resolved === false) {
  		info = h('div', { className: 'result-info unresolved' }, '等待搜索中... 🔍');
  	} else if (err) {
