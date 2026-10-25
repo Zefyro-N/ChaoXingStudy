@@ -1,98 +1,134 @@
 # CXStudy 超星助手
 
-一个只面向**超星学习通**（chaoxing.com / xueyinonline.com）的课程学习辅助用户脚本。
+适用于 **超星学习通**（chaoxing.com / xueyinonline.com）的用户脚本：
+自动推进视频 / 音频 / 文档任务点，章节测验与视频内弹题由模型作答；作业与考试默认关闭、需手动触发。
 
-本项目是基于 [OCS 网课助手](https://github.com/ocsjs/ocsjs)（MIT 协议）**移除其他平台、重新收敛范围**后的衍生分支：
-保留并复用了上游成熟的答题框架与题型匹配算法，去掉了智慧树 / 雨课堂 / 智慧职教 / 职教云 / 中国大学 MOOC
-等平台的全部代码，并把答题来源从"题库"改为**你自己的大模型 API**。
-
----
-
-## 功能
-
-| 功能 | 说明 |
-|---|---|
-| 视频 / 音频 / 文档任务点 | **以 1.0x 真实速率**自动推进，不使用倍速、不拖动进度、不发送协议包 |
-| 章节测验 | 自动作答并提交（含**加密字体解密**与**图片题**） |
-| 作业 / 考试 | **默认关闭**，需手动开启并逐次确认（见下方风险说明） |
-| 答题来源 | 你自己的大模型 API（`opencode-go` 或 `deepseek` 官方），模型锁定 `deepseek-v4.1-flash` |
-| 图片题 | 选项或题干为图片时，图片会随请求发给支持识图的模型 |
-
-### 明确不做的事（硬边界）
-
-- **不使用倍速**（恒为 1.0x）
-- **不拖动 / 不跳转**播放进度
-- **不发送协议包**伪造进度，所有进度都来自真实播放
-- **不绕过人脸识别**、**不识别或绕过验证码**；检测到即停手，交由人工完成
-- **不随机作答**：答不出就放弃该题，而不是随便选一个
+- **当前版本**：`5.2.1-cxstudy.4`
+- **形态**：Tampermonkey / ScriptCat 用户脚本（基于 [ocsjs/ocsjs](https://github.com/ocsjs/ocsjs)（MIT）的 **fork + 补丁**，单平台分支，只保留超星）
+- **许可证**：MIT（保留上游版权声明与许可声明）
 
 ---
 
 ## 安装
 
-1. 在 Tampermonkey（油猴）或 ScriptCat（脚本猫）中新建脚本，粘贴 `ocs.user.js` 的全部内容并保存。
-2. 打开超星课程页面，脚本会自动注入操作面板。
-3. 在面板「设置」中填入你自己的模型 API Key（仅保存在浏览器本地脚本存储中，不写入任何文件）。
+1. 安装 [Tampermonkey](https://www.tampermonkey.net/) 或 [ScriptCat](https://scriptcat.org/)
+2. 安装脚本（二选一）：
+   - 打开 [Releases](https://github.com/Zefyro-N/CXStudy/releases) 下载最新 `ocs.user.js` 安装
+   - 或直接访问 `https://raw.githubusercontent.com/Zefyro-N/CXStudy/main/ocs.user.js`
+3. 打开任意超星课程页面 → 右下角出现面板 → 点 **⚙ 设置** 填 API Key（点「测试连接」确认可用）
 
-> 脚本需要完整的脚本管理器 API，不支持的管理器会直接提示并停止运行。
+---
+
+## 功能
+
+### 学习流程
+- 视频 / 音频 / 文档任务点自动推进，**锁定 1.0x**（不做倍速、不拖拽、不改进度）
+- **章节测验**：字体解密 + 模型作答 + 自动提交
+- **视频内弹题**：模型作答
+- 文档 / 图片阅读自动完成；进入页面自动跳到第一个未完成点；全部完成后从头复习
+
+### 答题辅助
+- 所有题目都会给出**可复制**的答案
+- 每题 `复制答案`；多空题按空拆分：`第N空 [复制]` + `复制全部（按顺序）`
+- 状态标注：`⚠ 随机填入`（模型答不出、由脚本随机选择，很可能错）、`需手动作答`
+- **主观题**：只显示 + 复制，**不自动填、不提交**
+- **图片题**：多模态；题干取不到时自动截图交给模型
+- **总开关**：关闭后不自动刷课 / 不自动答题（面板手动「开始」仍然可用）
+
+### 作业与考试（红线）
+- 默认**全部关闭**，需要**手动逐次**触发，并必须确认风险声明
+- **考试**需单独授权
+- **只要题目中含主观题，绝不自动提交**（连点击提交都不做）
+
+---
+
+## 模型接入
+
+| 提供商 | 模型 ID |
+|---|---|
+| `opencode-go` | `deepseek-v4.1-flash` |
+| `deepseek 官方` | `deepseek-flash` |
+
+> ⚠️ **两家的模型 ID 不通用，不能写死成一个值。**
+> 实测（2026-10-21）`GET https://api.deepseek.com/models` 只返回 `deepseek-flash` / `deepseek-v4-pro`；
+> 给官方传 `deepseek-v4.1-flash` 会直接 `HTTP 400`：
+> `The supported API model names are deepseek-flash, deepseek-v4-pro, but you passed deepseek-v4.1-flash`
+> 而 `opencode-go` 用 `deepseek-v4.1-flash` 是正常的。脚本已按提供商分别取模型。
+
+其他相关设计：
+- `max_tokens = 8192`：推理模型会把额度烧在 `reasoning_content` 上，给低了会出现
+  `finish_reason=length` 且 `content` 为空；空时脚本会从 `reasoning_content` 尾部兜底。
+- **API Key 只存在脚本本地存储**（`GM_setValue`），不写入任何项目文件、不打印完整密钥；面板提供「测试连接」「清除」，输入框为密码遮罩。
+
+---
+
+## 明确不做的事（硬边界）
+
+- ❌ 不修改播放倍速、不拖拽进度、不伪造协议包
+- ❌ 不做人脸识别绕过；**不做验证码识别或绕过**（只检测到就停止）
+- ❌ 不自动填写 / 提交主观题；作业与考试默认不参与
+- ❌ 不做题库上传、云同步、账号托管
+
+---
+
+## 常见问题
+
+| 现象 | 原因与处理 |
+|---|---|
+| `HTTP 400 ... supported API model names ...` | 提供商与模型名不匹配，见上文模型表 |
+| `Request is missing x-opencode-session ...` | `opencode-go` 需要该会话头（自建请求时容易漏）；用脚本内置请求头即可 |
+| 模型返回空内容，`finish_reason=length` | `max_tokens` 被推理过程烧光 → 保持 8192，或改用非推理模型 |
+| 视频不累计进度 | 站点要求 1.0x 且不可拖拽；请让页面保持在前台播放 |
+| 面板里没有某些按钮 | 单平台分支已删除多余功能（倍速、在线搜题、使用教程、面板缩放等） |
+
+---
+
+## 与上游的差异（简述）
+
+- **删除其它平台**：`zhs` / `yuketang` / `icve` / `icourse` / `zjy` 等约 **7500 行**，只保留超星
+- **删除**：更新模块、桌面软件桥接、播放倍数、在线搜题（划词搜索）、使用教程、自定义编辑框、面板缩放
+- **新增**：章节测验字体解密、模型答题（含多模态与截图兜底）、作业/考试手动闸门、总开关、多空题逐空复制
+- 产物约 **484 KB**（上游约 916 KB）
+
+---
+
+## 构建（开发者）
+
+```bash
+# 1. 取上游基线
+git clone https://github.com/ocsjs/ocsjs.git refs/ocsjs
+cd refs/ocsjs && git checkout 8b25a3f44523a0d4b7373878488056f4aa478cf6
+
+# 2. 应用本仓库补丁
+git apply --ignore-whitespace ../../patches/ocsjs-cxstudy.patch
+
+# 3. 安装依赖（Node 18）
+pnpm install --node-linker=hoisted
+
+# 4. 构建（会先跑 4 套测试，全绿才产出）
+npx gulp -f ./scripts/build-core.js
+# 产物：refs/ocsjs/release/ocs.user.js
+```
+
+**测试构成**：`resolver 164` · `cx-model.handler 39` · `blank-answers 20` · `cx-videoquiz 30` = **253 项**
+（`cx-model.handler` 里包含「模型名必须按提供商区分」的回归断言）
+
+补丁与基线信息见 `patches/`。
 
 ---
 
 ## 风险说明（请务必阅读）
 
-本工具会代替你完成课程学习任务。使用自动化手段存在被平台判定为异常的风险，
-已知后果包括：**学习记录被清零 → 再次违规则总评 0 分 → 三次可能按作弊处理**。
-请自行评估并承担全部风险。作业与考试功能默认关闭，且属于额外风险，建议在你知情的前提下逐次手动开启。
+使用自动化手段存在被平台判定异常的风险，已知后果包括：
 
-本项目不收集、不上报任何数据：没有统计埋点，也没有答题结果上传。
+**学习记录被清零 → 再次违规则总评 0 分 → 三次可能按作弊处理。**
 
----
-
-## 与上游的差异
-
-**保留**了上游的答题框架（题目解析、题型匹配算法、面板与配置体系）、超星平台的完整功能，
-以及字体解密等能力。
-
-**移除**了：
-
-- 其他平台的全部代码与入口（智慧树、雨课堂、智慧职教、职教云、中国大学 MOOC）
-- 题库体系与相关界面（改为直接接入你自己的模型 API）
-- 上游的在线更新检查、更新日志、交流群 / 官网 / 捐赠等推广信息，以及其 logo 与 CDN 图标
-- `@connect *` 的全域名通用构建变体
-
-**仍然依赖的上游资源**：字体解密参照表 `https://cdn.ocsjs.com/resources/font/*.bin`
-（按需拉取并缓存；若不可达，加密字体无法解密）。
+本项目定位为**提效工具**，不保证成绩、不规避任何检测。请自行评估并承担全部风险。
 
 ---
 
-## 代码结构
+## 许可证与致谢
 
-```
-packages/core/            答题框架核心：题目解析、题型匹配算法、worker
-packages/scripts/         平台脚本
-  src/projects/cx.ts        超星学习通（唯一保留的平台）
-  src/projects/common.ts    通用面板、配置、题目结果面板
-  src/projects/background.ts 后台模块、菜单、环境检测
-  src/utils/cx-model.ts     模型答题器（本项目核心改造点）
-  src/utils/cx-work-gate.ts 作业/考试手动闸门
-  src/utils/cx-screenshot.ts 截图兜底
-tests/                    匹配算法测试 + prompt 构造器测试
-```
-
-## 构建
-
-```bash
-pnpm install --node-linker=hoisted
-npx gulp -f scripts/build-core.js
-```
-
-构建前会自动运行两套测试；构建过程还会校验产物中只包含超星学习通一个平台。
-产物输出到 `release/ocs.user.js`。
-
----
-
-## 许可证
-
-[MIT](LICENSE)。本项目基于 enncy 的 [OCS 网课助手](https://github.com/ocsjs/ocsjs) 修改而来，
-依据 MIT 协议要求，原始版权声明与许可声明均被完整保留。
-被分发的脚本文件内也附有该声明。
+- 本项目基于 [enncy](https://github.com/ocsjs) 的 [OCS 网课助手](https://github.com/ocsjs/ocsjs)（MIT）修改而来。
+- 依据 MIT 协议要求，**原始版权声明与许可声明均已完整保留**（见 `LICENSE` 与脚本头部）。
+- 本项目同样以 MIT 协议发布。
