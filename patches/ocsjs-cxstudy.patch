@@ -10,14 +10,14 @@ index 675a8fb..16d156f 100644
 +# 构建产物（本地 gulp 输出，不入库；对应 release/ocs.user.js）
 +release/
 diff --git a/package.json b/package.json
-index a715d35..4902b97 100644
+index a715d35..1ccfa31 100644
 --- a/package.json
 +++ b/package.json
 @@ -1,6 +1,6 @@
  {
  	"name": "ocsjs",
 -	"version": "5.2.1",
-+	"version": "5.2.1-cxstudy.3",
++	"version": "5.2.1-cxstudy.4",
  	"description": "ocs - online course script 在线网络课程辅助工具",
  	"types": "./lib/src/core/index.d.ts",
  	"main": "./lib/src/core/index.js",
@@ -1425,7 +1425,7 @@ index c9f9c7a..1f7adf3 100644
  					.map((m) => {
  						const url = window.location.href;
 diff --git a/packages/scripts/src/projects/common.ts b/packages/scripts/src/projects/common.ts
-index aadb3d9..22121e2 100644
+index aadb3d9..a38e0a8 100644
 --- a/packages/scripts/src/projects/common.ts
 +++ b/packages/scripts/src/projects/common.ts
 @@ -1,4 +1,5 @@
@@ -1582,7 +1582,7 @@ index aadb3d9..22121e2 100644
 +					options: Object.keys(CX_PROVIDERS).map((k) => [k, CX_PROVIDERS[k].label]),
  					attrs: {
 -						type: 'button'
-+						title: '本分支只允许这两个提供商。模型固定为 ' + CX_LOCKED_MODEL + '，不提供修改入口。'
++						title: '本分支只允许这两个提供商，模型按提供商固定（opencode-go: deepseek-v4.1-flash / deepseek 官方: deepseek-flash），不提供修改入口。'
  					},
 -					/** 「⋯」更多按钮：悬浮显示下拉框，选择题库配置获取方式（官方题库 / 自定义题库），点击选项直接打开对应弹窗（组件见 utils/ui.ts） */
 -					suffixSlot() {
@@ -11445,16 +11445,18 @@ index 693e800..2e94735 100644
  };
 diff --git a/packages/scripts/src/utils/cx-model.ts b/packages/scripts/src/utils/cx-model.ts
 new file mode 100644
-index 0000000..1d17313
+index 0000000..876afc0
 --- /dev/null
 +++ b/packages/scripts/src/utils/cx-model.ts
-@@ -0,0 +1,307 @@
+@@ -0,0 +1,324 @@
 +/**
 + * 本项目锁定的模型答题器。
 + *
 + * 设计约束：
 + *   1. 只允许两个提供商：opencode-go、deepseek 官方
-+ *   2. 模型严格锁定为 deepseek-v4.1-flash，界面不提供其他模型的入口
++ *   2. 模型名**按提供商分别锁定**（两家 ID 不通用，实测官方不认 v4.1-flash）：
++ *        opencode-go → deepseek-v4.1-flash
++ *        deepseek 官方 → deepseek-flash
 + *   3. API Key 只存在本地脚本存储中，不写入任何项目文件
 + *
 + * 实现方式：把模型包装成 OCS 原生的 `AnswererWrapper`（通用 HTTP 答题器），
@@ -11476,16 +11478,30 @@ index 0000000..1d17313
 +import type { AnswererWrapper } from '@ocsjs/core';
 +
 +/** 锁定的模型：不提供修改入口。V4.1 Flash 原生支持多模态 */
++/**
++ * opencode-go 使用的模型名（保留该导出以兼容既有引用）。
++ *
++ * ⚠️ 模型名**按提供商分开**，不可混用：见 {@link CX_PROVIDERS} 里的 model 字段。
++ */
 +export const CX_LOCKED_MODEL = 'deepseek-v4.1-flash';
 +
-+/** 只允许这两个提供商 */
++/**
++ * 只允许这两个提供商。
++ *
++ * **模型名必须按提供商分开**：两家模型 ID 不通用 ——
++ *   实测 `GET https://api.deepseek.com/models` 只返回 `deepseek-flash` / `deepseek-v4-pro`；
++ *   传 `deepseek-v4.1-flash` 会 400：
++ *     "The supported API model names are deepseek-flash, deepseek-v4-pro, but you passed ..."
++ * 而 opencode-go 用 `deepseek-v4.1-flash` 是正常的，所以不能共用一个常量。
++ */
 +export const CX_PROVIDERS: Record<
 +	string,
-+	{ label: string; url: string; extraHeaders: Record<string, string> }
++	{ label: string; url: string; extraHeaders: Record<string, string>; model: string }
 +> = {
 +	'opencode-go': {
 +		label: 'opencode-go',
 +		url: 'https://opencode.ai/inference/go/v1/chat/completions',
++		model: 'deepseek-v4.1-flash',
 +		extraHeaders: {
 +			// OpenCode Go 要求自定义 UA + 稳定会话 ID
 +			// ${__session} 由 answer.wrapper.handler.ts 的 补丁注入
@@ -11496,6 +11512,7 @@ index 0000000..1d17313
 +	deepseek: {
 +		label: 'deepseek 官方',
 +		url: 'https://api.deepseek.com/chat/completions',
++		model: 'deepseek-flash',
 +		extraHeaders: {}
 +	}
 +};
@@ -11645,7 +11662,7 @@ index 0000000..1d17313
 +
 +	return [
 +		{
-+			name: p.label + ' / ' + CX_LOCKED_MODEL + (vision ? ' / 图片题' : ''),
++			name: p.label + ' / ' + p.model + (vision ? ' / 图片题' : ''),
 +			homepage: p.url,
 +			url: p.url,
 +			method: 'post',
@@ -11659,7 +11676,7 @@ index 0000000..1d17313
 +				p.extraHeaders
 +			) as Record<string, string>,
 +			data: {
-+				model: CX_LOCKED_MODEL,
++				model: p.model,
 +				messages: { handler: makeMessagesHandler(debug, vision) },
 +				// 4096 不够：实测思考模型（v4.1-flash 会输出 reasoning_content）
 +				// 会把额度烧在推理上，出现 "finish_reason":"length" 且 content 为空，
@@ -11710,7 +11727,7 @@ index 0000000..1d17313
 +		// 而它在模块顶层就引用 HTMLElement，导致本模块无法在无 DOM 环境加载）。
 +		const res: any = await new Promise((resolve, reject) => {
 +			const body = JSON.stringify({
-+				model: CX_LOCKED_MODEL,
++				model: p.model,
 +				messages: [{ role: 'user', content: 'ping' }],
 +				max_tokens: 8,
 +				stream: false
@@ -11743,7 +11760,7 @@ index 0000000..1d17313
 +				ontimeout: () => reject(new Error('请求超时（25s）'))
 +			});
 +		});
-+		const model = (res && res.model) || CX_LOCKED_MODEL;
++		const model = (res && res.model) || p.model;
 +		return { ok: true, message: '连接正常：' + p.label + ' / ' + model };
 +	} catch (e: any) {
 +		const msg = String((e && e.message) || e);
@@ -12825,7 +12842,7 @@ index 74b7d18..0000000
 -	readNotes
 -};
 diff --git a/scripts/build-core.js b/scripts/build-core.js
-index 2d2f0e9..522f0dc 100644
+index 2d2f0e9..7773547 100644
 --- a/scripts/build-core.js
 +++ b/scripts/build-core.js
 @@ -6,7 +6,7 @@ const util = require('util');
@@ -12909,7 +12926,7 @@ index 2d2f0e9..522f0dc 100644
 +				name: 'CXStudy 超星助手',
 +				// 版本号显式写出：package.json 的 version 在本构建流程里没有生效（产物仍是旧版本号），
 +				// 而版本号决定油猴能否识别更新，必须准确。发版时递增此处与 package.json。
-+				version: '5.2.1-cxstudy.3',
++				version: '5.2.1-cxstudy.4',
 +				description:
 +					'超星学习通专用助手：以真实速率推进视频/音频/文档任务点，章节测验自动作答（支持图片题）。' +
 +					'基于 MIT 协议的 OCS 网课助手（https://github.com/ocsjs/ocsjs）衍生，仅保留超星学习通平台。',
@@ -13133,10 +13150,10 @@ index 0000000..1f0dd24
 +}
 diff --git a/tests/cx-model.handler.test.ts b/tests/cx-model.handler.test.ts
 new file mode 100644
-index 0000000..fa5eecf
+index 0000000..254c76d
 --- /dev/null
 +++ b/tests/cx-model.handler.test.ts
-@@ -0,0 +1,185 @@
+@@ -0,0 +1,202 @@
 +/**
 + * 模型 prompt 构造器测试
 + *
@@ -13154,7 +13171,7 @@ index 0000000..fa5eecf
 + * 而纯文字题因 `images.length === 0` 走不到那一行，长期不会暴露。
 + */
 +
-+import { buildModelAnswererWrappers } from '../packages/scripts/src/utils/cx-model';
++import { buildModelAnswererWrappers, CX_PROVIDERS, CX_LOCKED_MODEL } from '../packages/scripts/src/utils/cx-model';
 +
 +let pass = 0;
 +const failures: string[] = [];
@@ -13306,6 +13323,23 @@ index 0000000..fa5eecf
 +	ok('多空格式优先于主观题分点格式', sysText.includes('优先于第 8 条'));
 +	ok('提示词仍拒绝对外输出解释与前后缀', sysText.includes('不要输出解释'));
 +}
++
++// ============ 模型名必须按提供商分开（实测过的真实故障）============
++// 背景：曾把两家共用一个常量 deepseek-v4.1-flash，导致 deepseek 官方 API 直接 400：
++//   "The supported API model names are deepseek-flash, deepseek-v4-pro"
++// 而 opencode-go 用 deepseek-v4.1-flash 是正常的，所以两者不能共用一个值。
++console.log('\n[模型名]');
++ok('deepseek 官方用 deepseek-flash', CX_PROVIDERS.deepseek.model === 'deepseek-flash', CX_PROVIDERS.deepseek.model);
++ok('opencode-go 仍用 deepseek-v4.1-flash', CX_PROVIDERS['opencode-go'].model === 'deepseek-v4.1-flash', CX_PROVIDERS['opencode-go'].model);
++ok('两家模型名不同（防止被误统一）', CX_PROVIDERS.deepseek.model !== CX_PROVIDERS['opencode-go'].model);
++ok('CX_LOCKED_MODEL 与 opencode-go 一致（兼容旧引用）', CX_LOCKED_MODEL === CX_PROVIDERS['opencode-go'].model);
++
++const wrapDsk = buildModelAnswererWrappers('deepseek', 'fake-key', false, false)[0] as any;
++ok('deepseek 答题器请求体 model = deepseek-flash', wrapDsk?.data?.model === 'deepseek-flash', String(wrapDsk?.data?.model));
++ok('deepseek 答题器名称包含 deepseek-flash', String(wrapDsk?.name || '').includes('deepseek-flash'), wrapDsk?.name);
++const wrapOc = buildModelAnswererWrappers('opencode-go', 'fake-key', false, false)[0] as any;
++ok('opencode-go 答题器请求体 model 不变', wrapOc?.data?.model === 'deepseek-v4.1-flash', String(wrapOc?.data?.model));
++ok('未知提供商回退到 opencode-go 的模型', String((buildModelAnswererWrappers('unknown', 'fake-key', false, false)[0] as any)?.data?.model) === 'deepseek-v4.1-flash');
 +
 +console.log(
 +	'\n' +
