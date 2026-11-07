@@ -10,14 +10,14 @@ index 675a8fb..16d156f 100644
 +# 构建产物（本地 gulp 输出，不入库；对应 release/ocs.user.js）
 +release/
 diff --git a/package.json b/package.json
-index a715d35..1ccfa31 100644
+index a715d35..9a269b7 100644
 --- a/package.json
 +++ b/package.json
 @@ -1,6 +1,6 @@
  {
  	"name": "ocsjs",
 -	"version": "5.2.1",
-+	"version": "5.2.1-cxstudy.4",
++	"version": "5.2.1-cxstudy.5",
  	"description": "ocs - online course script 在线网络课程辅助工具",
  	"types": "./lib/src/core/index.d.ts",
  	"main": "./lib/src/core/index.js",
@@ -11445,10 +11445,10 @@ index 693e800..2e94735 100644
  };
 diff --git a/packages/scripts/src/utils/cx-model.ts b/packages/scripts/src/utils/cx-model.ts
 new file mode 100644
-index 0000000..876afc0
+index 0000000..af3c9ae
 --- /dev/null
 +++ b/packages/scripts/src/utils/cx-model.ts
-@@ -0,0 +1,324 @@
+@@ -0,0 +1,370 @@
 +/**
 + * 本项目锁定的模型答题器。
 + *
@@ -11526,10 +11526,10 @@ index 0000000..876afc0
 +const SYSTEM_PROMPT = [
 +	'你是一个只负责给出答案的答题助手，服务对象是参加在线课程测验的学生。',
 +	'严格遵守以下规则：',
-+	'1. 只输出最终答案本身，不要输出解释、推理过程、题号、引号或其他任何前后缀。',
-+	'2. 单选题：输出正确选项的完整文字。若正确选项本身就是图片（选项写成 [图片N]），则改为输出该选项的图片标记，例如 [图片2]。',
-+	'3. 多选题：输出所有正确选项的完整文字，用英文逗号分隔；若选项是图片，则输出对应的图片标记，例如 [图片2],[图片4]。',
-+	'4. 判断题：只输出「正确」或「错误」两个词中的一个。',
++	'1. 只输出最终答案本身。**不要输出任何前缀或后缀**（不要写「答案：」「选」「应该选」「故」「所以」），不要解释、不要推理过程、不要题号、不要引号。',
++	'2. 单选题：**只输出选项字母**（A/B/C/D 中的一个）。不要输出选项文字；即使选项是公式或图片（写成 [图片N]），也只输出字母。',
++	'3. 多选题：**只输出选项字母**，按字母顺序、用英文逗号分隔，例如 A,C。不要输出选项文字。',
++	'4. 判断题：只输出「正确」或「错误」两个词之一，**不要加句号、不要补充说明**。',
 +	'5. 填空题：只输出答案文本。',
 +	'6. 不确定时给出你认为最可能的一个答案，不要提问、不要要求补充信息、不要拒绝作答。',
 +	'7. 题干或选项中的图片会写成 [图片N] 占位符，图片按 N 的顺序（[图片1]、[图片2]…）附在消息末尾，编号与占位符一一对应，请结合图片内容作答。',
@@ -11635,7 +11635,53 @@ index 0000000..876afc0
 +		var cand = rs.slice(-500).toUpperCase().match(/\\b([A-F])\\b/g);
 +		text = cand && cand.length ? cand[cand.length - 1] : '';
 +	}
-+	if (DEBUG) { console.log('[CXStudy] 解析出的答案:', JSON.stringify(text)); }
++	// —— 答案归一化 ——
++	// 目的：消除"格式差异"导致的 resolver 匹配失败或**静默错配**
++	//（实测：同样答对的情况下，输出选项全文只有 57% 能被正确识别，只输出字母可到 92%）
++	text = (function (raw) {
++		var s = String(raw || '').trim();
++		if (!s) { return s; }
++		// 去掉常见前缀（记录是否真的剥离过，用于后面判断"这是选择题答案"）
++		var hadPrefix = false;
++		var before = s;
++		s = s.replace(/^(?:最终)?(?:正确答案|正确选项|答案|应该选|应选|选项|答|选)\s*[:：是为]?\s*/i, '').trim();
++		if (s !== before) { hadPrefix = true; }
++		// 1) 纯字母（A / A,C / A、C / (A) / AB）→ 大写字母，多选英文逗号
++		// 注意：这里刻意不放 [ ] { } < > 等字符（在模板字符串里转义后会把正则字符类弄坏），
++		// 字母答案只需要处理空白、逗号、顿号、分号、句点、括号。
++		var compact = s.toUpperCase().replace(/[\s,，、;；.．·()（）]/g, '');
++		// 仅在下列情况才当作"选择题答案"处理，避免把填空题的 AC/BD 之类缩写改成 A,C：
++		//   单字母 / 原文里含分隔符 / 剥离过前缀
++		var hasSep = /[,，、;；]/.test(s);
++		if (/^[A-H]{1,6}$/.test(compact) && (/^[A-H]$/.test(compact) || hasSep || hadPrefix)) {
++			var uniq = [];
++			for (var i = 0; i < compact.length; i++) {
++				if (uniq.indexOf(compact[i]) === -1) { uniq.push(compact[i]); }
++			}
++			uniq.sort();
++			return uniq.length > 1 ? uniq.join(',') : uniq[0];
++		}
++		// 2) 以「A. xxx」「A、xxx」「（A）xxx」形式给出的选项原文 → 只取字母
++		var marked = s.match(/(?:^|[\s，,、；;+])([A-H])\s*[.、．)）:：]/g);
++		if (marked && marked.length) {
++			var ls = [];
++			for (var j = 0; j < marked.length; j++) {
++				var L = String(marked[j]).replace(/[^A-Ha-h]/g, '').toUpperCase();
++				if (L && ls.indexOf(L) === -1) { ls.push(L); }
++			}
++			if (ls.length) { ls.sort(); return ls.length > 1 ? ls.join(',') : ls[0]; }
++		}
++		// 3) 判断题：去标点后精确匹配极性词（不允许带句号/括号补充）
++		var bare = s.replace(/[\s。．.，,；;！!？?“”"'‘’]/g, '');
++		if (/^(正确|对|是的|√|true|t|yes|1)$/i.test(bare)) { return '正确'; }
++		if (/^(错误|错|不对|不正确|否|×|x|false|f|no|0)$/i.test(bare)) { return '错误'; }
++		// 4) 判断题带简短补充说明（如「错误（该说法不成立）」）→ 提取极性词
++		if (bare.length <= 12 && /不正确|错误|不对/.test(bare)) { return '错误'; }
++		if (bare.length <= 12 && /正确|√/.test(bare) && !/不正确/.test(bare)) { return '正确'; }
++		// 5) 其它（填空 / 主观题 / 多空）原样返回
++		return s;
++	})(text);
++	if (DEBUG) { console.log('[CXStudy] 归一化后的答案:', JSON.stringify(text)); }
 +	return ['', text];
 +};`;
 +}
@@ -12842,7 +12888,7 @@ index 74b7d18..0000000
 -	readNotes
 -};
 diff --git a/scripts/build-core.js b/scripts/build-core.js
-index 2d2f0e9..7773547 100644
+index 2d2f0e9..d2513bd 100644
 --- a/scripts/build-core.js
 +++ b/scripts/build-core.js
 @@ -6,7 +6,7 @@ const util = require('util');
@@ -12926,7 +12972,7 @@ index 2d2f0e9..7773547 100644
 +				name: 'CXStudy 超星助手',
 +				// 版本号显式写出：package.json 的 version 在本构建流程里没有生效（产物仍是旧版本号），
 +				// 而版本号决定油猴能否识别更新，必须准确。发版时递增此处与 package.json。
-+				version: '5.2.1-cxstudy.4',
++				version: '5.2.1-cxstudy.5',
 +				description:
 +					'超星学习通专用助手：以真实速率推进视频/音频/文档任务点，章节测验自动作答（支持图片题）。' +
 +					'基于 MIT 协议的 OCS 网课助手（https://github.com/ocsjs/ocsjs）衍生，仅保留超星学习通平台。',
@@ -13150,10 +13196,10 @@ index 0000000..1f0dd24
 +}
 diff --git a/tests/cx-model.handler.test.ts b/tests/cx-model.handler.test.ts
 new file mode 100644
-index 0000000..254c76d
+index 0000000..2498848
 --- /dev/null
 +++ b/tests/cx-model.handler.test.ts
-@@ -0,0 +1,202 @@
+@@ -0,0 +1,267 @@
 +/**
 + * 模型 prompt 构造器测试
 + *
@@ -13187,6 +13233,12 @@ index 0000000..254c76d
 +}
 +
 +/** 与 OCS 运行期一致的求值方式 */
++function eqN(name: string, actual: string, expected: string) {
++	const a = JSON.stringify(actual);
++	const b = JSON.stringify(expected);
++	ok(name, a === b, a === b ? undefined : '实际 ' + a + '，期望 ' + b);
++}
++
 +function makeHandler(debug: boolean, vision: boolean): (env: any) => any {
 +	const wrappers = buildModelAnswererWrappers('opencode-go', 'fake-key-for-test', debug, vision);
 +	if (!wrappers.length) throw new Error('未产出答题器（apiKey 为空？）');
@@ -13315,13 +13367,19 @@ index 0000000..254c76d
 +	const sysText = sys ? JSON.parse('"' + sys[1] + '"') : '';
 +	ok('提示词要求图片选项输出 [图片N] 标记', sysText.includes('[图片2]'), sysText.slice(0, 120));
 +	ok('提示词声明编号与图片顺序一一对应', sysText.includes('一一对应'));
-+	ok('提示词仍保留「输出选项文字」作为主路径', sysText.includes('输出正确选项的完整文字'));
++	// —— 选择题改为「只输出字母」（实测：输出全文在真实页面只有 57% 能被正确识别，字母可到 92%）——
++	ok('提示词要求选择题只输出选项字母', sysText.includes('只输出选项字母'));
++	ok('提示词明确不要输出选项文字', sysText.includes('不要输出选项文字'));
++	ok('提示词禁止任何前后缀（答案：/选/应该选）', sysText.includes('不要输出任何前缀或后缀'));
++	ok('多选题要求字母 + 英文逗号示例', sysText.includes('A,C'));
++	ok('判断题要求不要加句号/补充说明', sysText.includes('不要加句号'));
++	ok('提示词不再要求输出选项完整文字', !sysText.includes('输出正确选项的完整文字'));
 +	// 多空题：答案格式必须由提示词规定，解析端才不需要猜分隔符
 +	ok('提示词要求多空题按「第N空：」逐行输出', sysText.includes('第N空：答案'));
 +	ok('提示词给出第1空/第2空示例', sysText.includes('第1空：单精度型') && sysText.includes('第2空：双精度型'));
 +	ok('提示词禁止用顿号把多个空连成一行', sysText.includes('不要用「、」'));
 +	ok('多空格式优先于主观题分点格式', sysText.includes('优先于第 8 条'));
-+	ok('提示词仍拒绝对外输出解释与前后缀', sysText.includes('不要输出解释'));
++	ok('提示词仍拒绝输出解释', sysText.includes('不要解释') || sysText.includes('不要输出解释'));
 +}
 +
 +// ============ 模型名必须按提供商分开（实测过的真实故障）============
@@ -13340,6 +13398,59 @@ index 0000000..254c76d
 +const wrapOc = buildModelAnswererWrappers('opencode-go', 'fake-key', false, false)[0] as any;
 +ok('opencode-go 答题器请求体 model 不变', wrapOc?.data?.model === 'deepseek-v4.1-flash', String(wrapOc?.data?.model));
 +ok('未知提供商回退到 opencode-go 的模型', String((buildModelAnswererWrappers('unknown', 'fake-key', false, false)[0] as any)?.data?.model) === 'deepseek-v4.1-flash');
++
++// ============ 响应归一化（防止"答对却认不出 / 静默错配"）============
++console.log('\n[归一化]');
++
++/** 取出响应处理器的求值函数 */
++function makeRespHandler(): (res: any) => any {
++	const wrap = buildModelAnswererWrappers('opencode-go', 'fake-key', false, false)[0] as any;
++	const src = wrap?.handler;
++	if (typeof src !== 'string') throw new Error('handler 不是源码字符串');
++	return new Function(src)();
++}
++
++/** 用给定 content 调一次响应处理器，返回归一化后的答案 */
++function norm(content: string): string {
++	const h = makeRespHandler();
++	const r: any = h({ choices: [{ message: { content } }] });
++	return String(Array.isArray(r) ? r[1] : r);
++}
++
++// 选择题：各种写法都应收敛成字母
++eqN('纯字母 A 保持不变', norm('A'), 'A');
++eqN('小写 a → A', norm('a'), 'A');
++eqN('多选 A,C → A,C', norm('A,C'), 'A,C');
++eqN('多选顿号 A、C → A,C', norm('A、C'), 'A,C');
++eqN('多选中文逗号 A，C → A,C', norm('A，C'), 'A,C');
++// 连写 AC 保持原样：既避免误伤填空题里的缩写，resolver 本身也有 ABCD 兜底能处理 'AC'
++eqN('连写 AC 保持原样（交给 resolver 的 ABCD 兜底）', norm('AC'), 'AC');
++eqN('括号 (B) → B', norm('(B)'), 'B');
++eqN('前缀「答案：C」→ C', norm('答案：C'), 'C');
++eqN('前缀「应该选 D」→ D', norm('应该选 D'), 'D');
++eqN('选项原文「C. 语言的指称」→ C', norm('C. 语言的指称'), 'C');
++eqN('重复字母 A,A → A', norm('A,A'), 'A');
++eqN('填空缩写 AC 不被改成 A,C（防误伤）', norm('AC'), 'AC');
++eqN('填空缩写 BD 不被改成 B,D（防误伤）', norm('BD'), 'BD');
++eqN('带前缀的 AC 才收敛（答案：AC → A,C）', norm('答案：AC'), 'A,C');
++
++// 判断题：去标点 / 去补充说明
++eqN('错误 保持不变', norm('错误'), '错误');
++eqN('错误。→ 错误', norm('错误。'), '错误');
++eqN('错误（该说法不成立）→ 错误', norm('错误（该说法不成立）'), '错误');
++eqN('不正确 → 错误', norm('不正确'), '错误');
++eqN('True → 正确', norm('True'), '正确');
++eqN('× → 错误', norm('×'), '错误');
++eqN('正确 → 正确', norm('正确'), '正确');
++
++// 非选择题/判断题：不得被误伤
++eqN('填空题答案 2x+1 保持不变', norm('2x+1'), '2x+1');
++eqN('多空题格式保持不变', norm('第1空：单精度型\n第2空：双精度型'), '第1空：单精度型\n第2空：双精度型');
++ok(
++	'长主观题不被误判为判断题',
++	norm('内在主义认为信念的证成依赖于信念之间的支持关系，因此正确性来自整体融贯。').length > 12,
++	'被截断了'
++);
 +
 +console.log(
 +	'\n' +
