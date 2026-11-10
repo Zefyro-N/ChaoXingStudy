@@ -10,14 +10,14 @@ index 675a8fb..16d156f 100644
 +# 构建产物（本地 gulp 输出，不入库；对应 release/ocs.user.js）
 +release/
 diff --git a/package.json b/package.json
-index a715d35..9a269b7 100644
+index a715d35..2d53baa 100644
 --- a/package.json
 +++ b/package.json
 @@ -1,6 +1,6 @@
  {
  	"name": "ocsjs",
 -	"version": "5.2.1",
-+	"version": "5.2.1-cxstudy.5",
++	"version": "5.2.1-cxstudy.6",
  	"description": "ocs - online course script 在线网络课程辅助工具",
  	"types": "./lib/src/core/index.d.ts",
  	"main": "./lib/src/core/index.js",
@@ -11445,10 +11445,10 @@ index 693e800..2e94735 100644
  };
 diff --git a/packages/scripts/src/utils/cx-model.ts b/packages/scripts/src/utils/cx-model.ts
 new file mode 100644
-index 0000000..af3c9ae
+index 0000000..7e70446
 --- /dev/null
 +++ b/packages/scripts/src/utils/cx-model.ts
-@@ -0,0 +1,370 @@
+@@ -0,0 +1,385 @@
 +/**
 + * 本项目锁定的模型答题器。
 + *
@@ -11635,50 +11635,65 @@ index 0000000..af3c9ae
 +		var cand = rs.slice(-500).toUpperCase().match(/\\b([A-F])\\b/g);
 +		text = cand && cand.length ? cand[cand.length - 1] : '';
 +	}
-+	// —— 答案归一化 ——
-+	// 目的：消除"格式差异"导致的 resolver 匹配失败或**静默错配**
-+	//（实测：同样答对的情况下，输出选项全文只有 57% 能被正确识别，只输出字母可到 92%）
++	// —— 答案归一化（**保守**，绝不误伤填空题）——
++	// 关键约束：响应处理器只拿到 response，**拿不到题型**，所以不能按题型分支。
++	// 因此只在"整段答案明显是选择题/判断题答案"时才改写，其余一律原样返回。
++	// 背景：实测"输出选项全文"在真实页面只有 57% 能被识别，改为字母后 92%；
++	// 但早期版本的前缀剥离/字母抽取过宽，会吃掉「选项一」「A、B 两点间距离」这类填空答案。
 +	text = (function (raw) {
 +		var s = String(raw || '').trim();
 +		if (!s) { return s; }
-+		// 去掉常见前缀（记录是否真的剥离过，用于后面判断"这是选择题答案"）
-+		var hadPrefix = false;
-+		var before = s;
-+		s = s.replace(/^(?:最终)?(?:正确答案|正确选项|答案|应该选|应选|选项|答|选)\s*[:：是为]?\s*/i, '').trim();
-+		if (s !== before) { hadPrefix = true; }
-+		// 1) 纯字母（A / A,C / A、C / (A) / AB）→ 大写字母，多选英文逗号
-+		// 注意：这里刻意不放 [ ] { } < > 等字符（在模板字符串里转义后会把正则字符类弄坏），
-+		// 字母答案只需要处理空白、逗号、顿号、分号、句点、括号。
-+		var compact = s.toUpperCase().replace(/[\s,，、;；.．·()（）]/g, '');
-+		// 仅在下列情况才当作"选择题答案"处理，避免把填空题的 AC/BD 之类缩写改成 A,C：
-+		//   单字母 / 原文里含分隔符 / 剥离过前缀
-+		var hasSep = /[,，、;；]/.test(s);
-+		if (/^[A-H]{1,6}$/.test(compact) && (/^[A-H]$/.test(compact) || hasSep || hadPrefix)) {
-+			var uniq = [];
-+			for (var i = 0; i < compact.length; i++) {
-+				if (uniq.indexOf(compact[i]) === -1) { uniq.push(compact[i]); }
-+			}
-+			uniq.sort();
-+			return uniq.length > 1 ? uniq.join(',') : uniq[0];
-+		}
-+		// 2) 以「A. xxx」「A、xxx」「（A）xxx」形式给出的选项原文 → 只取字母
-+		var marked = s.match(/(?:^|[\s，,、；;+])([A-H])\s*[.、．)）:：]/g);
-+		if (marked && marked.length) {
-+			var ls = [];
-+			for (var j = 0; j < marked.length; j++) {
-+				var L = String(marked[j]).replace(/[^A-Ha-h]/g, '').toUpperCase();
-+				if (L && ls.indexOf(L) === -1) { ls.push(L); }
-+			}
-+			if (ls.length) { ls.sort(); return ls.length > 1 ? ls.join(',') : ls[0]; }
-+		}
-+		// 3) 判断题：去标点后精确匹配极性词（不允许带句号/括号补充）
-+		var bare = s.replace(/[\s。．.，,；;！!？?“”"'‘’]/g, '');
++
++		// 1) 判断题：整段只由极性词 + 标点组成（如「错误」「错误。」「×」「True」）
++		var bare = s.replace(/[\\s。．.，,；;！!？?“”"'‘’、:：]/g, '');
 +		if (/^(正确|对|是的|√|true|t|yes|1)$/i.test(bare)) { return '正确'; }
 +		if (/^(错误|错|不对|不正确|否|×|x|false|f|no|0)$/i.test(bare)) { return '错误'; }
-+		// 4) 判断题带简短补充说明（如「错误（该说法不成立）」）→ 提取极性词
-+		if (bare.length <= 12 && /不正确|错误|不对/.test(bare)) { return '错误'; }
-+		if (bare.length <= 12 && /正确|√/.test(bare) && !/不正确/.test(bare)) { return '正确'; }
-+		// 5) 其它（填空 / 主观题 / 多空）原样返回
++		// 1b) 「错误（该说法不成立）」这类：**以**极性词开头 + 简短括号补充
++		var mJudge = s.match(/^(正确|错误)\\s*[（(][^）)]{0,14}[）)]\\s*$/);
++		if (mJudge) { return mJudge[1]; }
++
++		// 2) 选择题：整段就是字母（可带分隔符或一层括号）
++		var letterForm = s.replace(/\\s/g, '');
++		var mOne = letterForm.match(/^[（(]?([A-H])[）)]?$/);
++		if (mOne) { return mOne[1]; }
++		var mMulti = letterForm.match(/^[（(]?([A-H])(?:[,，、;；][A-H])+[）)]?$/);
++		if (mMulti) {
++			var ls = letterForm.toUpperCase().replace(/[^A-H]/g, '').split('');
++			var uniq = [];
++			for (var i = 0; i < ls.length; i++) {
++				if (uniq.indexOf(ls[i]) === -1) { uniq.push(ls[i]); }
++			}
++			uniq.sort();
++			return uniq.join(',');
++		}
++
++		// 3) 显式前缀「答案：X」「答：X」（**必须有冒号/是**，避免吃掉「选项一」这类答案）
++		var mPre = s.match(/^(?:最终)?(?:正确答案|正确选项|答案|答)\\s*[:：是为]\\s*([\\s\\S]+)$/);
++		if (mPre) {
++			var rest = mPre[1].trim();
++			if (/^[（(]?[A-H][）)]?$/.test(rest)) { return rest.replace(/[（()）]/g, ''); }
++			if (/^[A-H](?:[,，、;；][A-H])+$/i.test(rest) || /^[A-H]{2,6}$/i.test(rest)) {
++				var ls2 = rest.toUpperCase().replace(/[^A-H]/g, '').split('');
++				var u2 = [];
++				for (var j = 0; j < ls2.length; j++) {
++					if (u2.indexOf(ls2[j]) === -1) { u2.push(ls2[j]); }
++				}
++				u2.sort();
++				return u2.join(',');
++			}
++			if (/^(正确|错误)$/.test(rest)) { return rest; }
++			// 普通内容（如「答：2x+1」）→ 只剥前缀
++			if (rest.length <= 60) { return rest; }
++			return s;
++		}
++
++		// 4) 口语化「应该选 D」「选 B」：短句 + 以单个字母结尾 + 含"选/答案/项"
++		if (s.length <= 8) {
++			var mTail = s.match(/([A-H])\\s*$/);
++			if (mTail && /选|答案|项/.test(s)) { return mTail[1]; }
++		}
++
++		// 5) 其它（填空 / 主观题 / 多空 / 选项原文）原样返回
 +		return s;
 +	})(text);
 +	if (DEBUG) { console.log('[CXStudy] 归一化后的答案:', JSON.stringify(text)); }
@@ -12888,7 +12903,7 @@ index 74b7d18..0000000
 -	readNotes
 -};
 diff --git a/scripts/build-core.js b/scripts/build-core.js
-index 2d2f0e9..d2513bd 100644
+index 2d2f0e9..661cb0c 100644
 --- a/scripts/build-core.js
 +++ b/scripts/build-core.js
 @@ -6,7 +6,7 @@ const util = require('util');
@@ -12972,7 +12987,7 @@ index 2d2f0e9..d2513bd 100644
 +				name: 'CXStudy 超星助手',
 +				// 版本号显式写出：package.json 的 version 在本构建流程里没有生效（产物仍是旧版本号），
 +				// 而版本号决定油猴能否识别更新，必须准确。发版时递增此处与 package.json。
-+				version: '5.2.1-cxstudy.5',
++				version: '5.2.1-cxstudy.6',
 +				description:
 +					'超星学习通专用助手：以真实速率推进视频/音频/文档任务点，章节测验自动作答（支持图片题）。' +
 +					'基于 MIT 协议的 OCS 网课助手（https://github.com/ocsjs/ocsjs）衍生，仅保留超星学习通平台。',
@@ -13196,10 +13211,10 @@ index 0000000..1f0dd24
 +}
 diff --git a/tests/cx-model.handler.test.ts b/tests/cx-model.handler.test.ts
 new file mode 100644
-index 0000000..2498848
+index 0000000..8ae9a27
 --- /dev/null
 +++ b/tests/cx-model.handler.test.ts
-@@ -0,0 +1,267 @@
+@@ -0,0 +1,281 @@
 +/**
 + * 模型 prompt 构造器测试
 + *
@@ -13419,7 +13434,8 @@ index 0000000..2498848
 +
 +// 选择题：各种写法都应收敛成字母
 +eqN('纯字母 A 保持不变', norm('A'), 'A');
-+eqN('小写 a → A', norm('a'), 'A');
++// 保守策略：小写单字母不做大写化（宁可能力弱一点，也不误伤填空题的变量名 a）
++eqN('小写 a 保持原样（保护填空变量名）', norm('a'), 'a');
 +eqN('多选 A,C → A,C', norm('A,C'), 'A,C');
 +eqN('多选顿号 A、C → A,C', norm('A、C'), 'A,C');
 +eqN('多选中文逗号 A，C → A,C', norm('A，C'), 'A,C');
@@ -13428,11 +13444,24 @@ index 0000000..2498848
 +eqN('括号 (B) → B', norm('(B)'), 'B');
 +eqN('前缀「答案：C」→ C', norm('答案：C'), 'C');
 +eqN('前缀「应该选 D」→ D', norm('应该选 D'), 'D');
-+eqN('选项原文「C. 语言的指称」→ C', norm('C. 语言的指称'), 'C');
++// 保守策略：整段不是「纯字母」就不动它（选项原文交给 resolver 的相似匹配），
++// 否则会把「A、B 两点间距离」这类填空答案误截成字母
++eqN('选项原文「C. 语言的指称」保持原样', norm('C. 语言的指称'), 'C. 语言的指称');
 +eqN('重复字母 A,A → A', norm('A,A'), 'A');
 +eqN('填空缩写 AC 不被改成 A,C（防误伤）', norm('AC'), 'AC');
 +eqN('填空缩写 BD 不被改成 B,D（防误伤）', norm('BD'), 'BD');
 +eqN('带前缀的 AC 才收敛（答案：AC → A,C）', norm('答案：AC'), 'A,C');
++
++// —— 填空题防误伤（曾因归一化过宽导致填空填错/填不进去）——
++eqN('单个小写字母 a 不被大写化', norm('a'), 'a');
++eqN('「A、B 两点间距离」不被截成 A', norm('A、B 两点间距离'), 'A、B 两点间距离');
++eqN('「选项一」不被剥前缀', norm('选项一'), '选项一');
++eqN('「选择最优解」不被剥前缀', norm('选择最优解'), '选择最优解');
++eqN('「该说法错误」不被当成判断题', norm('该说法错误'), '该说法错误');
++eqN('普通填空「单精度型」原样', norm('单精度型'), '单精度型');
++eqN('表达式「x^2+1」原样', norm('x^2+1'), 'x^2+1');
++eqN('「答：2x+1」只剥显式前缀', norm('答：2x+1'), '2x+1');
++eqN('错误（带括注）仍归一化', norm('错误（该说法不成立）'), '错误');
 +
 +// 判断题：去标点 / 去补充说明
 +eqN('错误 保持不变', norm('错误'), '错误');
