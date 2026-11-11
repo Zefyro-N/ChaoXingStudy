@@ -21,7 +21,16 @@
 
 ## 二、值得借鉴（按价值排序）
 
-### ⭐⭐⭐ 1. `normalizeStringKeepSign` + `disambiguateBySign` —— 保留符号的消歧匹配
+### ⚠️ 已评估后降级：`normalizeStringKeepSign` + `disambiguateBySign`
+
+**评估结论：对我们收益低，暂不实现。**
+
+上游这个函数比较的是「题库答案文本」与「选项文本」。而 `.5` 之后我们让模型**只输出字母**，
+答案里根本没有文本可比 → 符号归一化失去比较对象。
+只有在模型偶尔输出选项全文（模糊匹配路径）时才有用，属于低概率分支。
+（`.9` 已从另一条路解决同类问题：字母按选项内容匹配。）
+
+### ⭐⭐⭐ 原评估：`normalizeStringKeepSign` + `disambiguateBySign` —— 保留符号的消歧匹配
 
 上游 5.4.0 在答案匹配里新增了一组"保留正负号"的归一化：
 
@@ -67,7 +76,20 @@ function disambiguateBySign(answers, options) {
 **落地方式**：在 `resolveSingle` / `resolveMultiple` 的「阶段 2 相似匹配」之后加一步符号消歧，
 命中部分选项时收紧候选，未命中则保持原逻辑（上游的 `return []` 语义正好是"不干预"）。
 
-### ⭐⭐⭐ 2. `linearizeLatex` —— LaTeX 线性化，作为响应后处理
+### ✅ 已实现（`5.2.1-cxstudy.13`）：`linearizeLatex` —— LaTeX 线性化兜底
+
+`packages/scripts/src/utils/cx-latex.ts`，在 `work.ts` 里对**所有模型答案**统一处理：
+
+```
+\frac{1}{2} → (1)/(2)      \sqrt{x} → √(x)      \sqrt[3]{x} → (x)^(1/3)
+x^{2} → x^2                a_{n} → a_n            $x^2$ → x^2
+\alpha → α                 \leq → ≤              \left/\right → 移除
+```
+
+保守性：不含 `\`、`$`、`^{`、`_{` 的字符串**原样返回** → 普通答案零影响。
+测试 `tests/latex-linearize.test.ts` 25 项（含幂等性：二次处理结果不变）。
+
+### ⭐⭐⭐ 原评估：`linearizeLatex` —— LaTeX 线性化，作为响应后处理
 
 上游新增了把 LaTeX 转成线性文本的函数（`\frac{}{}`、`\sqrt[]{}` 等），diff 里长行被截断，
 但**思路与我们的需求完全一致**：我们的提示词禁止模型输出 LaTeX，可模型偶尔仍会输出。
@@ -145,8 +167,8 @@ flushTabWrites() {
 
 ## 四、建议的落地顺序
 
-1. **`disambiguateBySign`**（最直接提升数学题正确率，改动局部、可单测）
-2. **`linearizeLatex` 响应兜底**（减少"输出 LaTeX 导致匹配失败"）
+1. ~~`disambiguateBySign`~~ —— **已评估降级**（只输出字母后没有可比文本）
+2. ~~`linearizeLatex`~~ —— **已完成**（`.13`）
 3. **缓存 key 归一化**（省钱 + 避免答案漂移）
 4. **多 frame 写缓冲**（可靠性，超星作业页 5 frame 场景真实存在）
 5. 安全审计表（留档，以后再考虑）
