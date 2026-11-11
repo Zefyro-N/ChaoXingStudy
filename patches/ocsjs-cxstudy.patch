@@ -10,14 +10,14 @@ index 675a8fb..16d156f 100644
 +# 构建产物（本地 gulp 输出，不入库；对应 release/ocs.user.js）
 +release/
 diff --git a/package.json b/package.json
-index a715d35..85fa47f 100644
+index a715d35..44c2df3 100644
 --- a/package.json
 +++ b/package.json
 @@ -1,6 +1,6 @@
  {
  	"name": "ocsjs",
 -	"version": "5.2.1",
-+	"version": "5.2.1-cxstudy.8",
++	"version": "5.2.1-cxstudy.9",
  	"description": "ocs - online course script 在线网络课程辅助工具",
  	"types": "./lib/src/core/index.d.ts",
  	"main": "./lib/src/core/index.js",
@@ -103,6 +103,120 @@ index 3016971..16c08b8 100644
       *
       *
       * @param type 题目类型
+diff --git a/packages/core/src/core/worker/resolvers/multiple.ts b/packages/core/src/core/worker/resolvers/multiple.ts
+index 3c72c90..70e8c33 100644
+--- a/packages/core/src/core/worker/resolvers/multiple.ts
++++ b/packages/core/src/core/worker/resolvers/multiple.ts
+@@ -1,4 +1,5 @@
+ import { splitAnswer, resolvePlainAnswer } from '../utils';
++import { isLetterOnlyOptions, matchLettersToOptions } from './single';
+ import { removeRedundant, answerNormalizedMatch, answerSimilarWithGap, normalizeString } from '../../utils/string';
+ import { findBestMatch } from 'string-similarity';
+ import { StringUtils } from '../../../utils/string';
+@@ -40,6 +41,14 @@ export function resolveMultiple(
+ ): MultipleResolveResult {
+ 	const optionStrings = options.map(removeRedundant);
+ 
++	// ========== 阶段0: 选项区只显示字母（站点打乱了选项顺序）==========
++	if (isLetterOnlyOptions(options)) {
++		const hit = matchLettersToOptions(resultAnswers, options);
++		if (hit.length) {
++			return { finish: true, plainOptions: [...new Set(hit)] };
++		}
++	}
++
+ 	const groups: MultipleMatchGroup[] = [];
+ 
+ 	for (let i = 0; i < resultAnswers.length; i++) {
+@@ -134,6 +143,13 @@ export function resolveMultiple(
+ 		const ans = StringUtils.nowrap(answer, '').trim();
+ 		if (resolvePlainAnswer(ans)) {
+ 			for (const char of ans) {
++				// 选项顺序可能被站点打乱（选项区只显示字母、内容在题干里）：
++				// 先按"选项文本 == 该字母"匹配，未命中再回退到按位置映射。
++				const labelIndex = optionStrings.findIndex((opt) => opt.trim().toUpperCase() === char);
++				if (labelIndex !== -1) {
++					plainOptions.push(options[labelIndex]);
++					continue;
++				}
+ 				const index = char.charCodeAt(0) - 65;
+ 				if (options[index] !== undefined) {
+ 					plainOptions.push(options[index]);
+diff --git a/packages/core/src/core/worker/resolvers/single.ts b/packages/core/src/core/worker/resolvers/single.ts
+index 3e2b4cb..69a9823 100644
+--- a/packages/core/src/core/worker/resolvers/single.ts
++++ b/packages/core/src/core/worker/resolvers/single.ts
+@@ -28,6 +28,16 @@ export function resolveSingle(answers: string[], options: string[], separators?:
+ 	const allAnswer = answers.map((a) => splitAnswer(a, separators)).flat();
+ 	const optionStrings = options.map(removeRedundant);
+ 
++	// ========== 阶段0: 选项区只显示字母（站点打乱了选项顺序）==========
++	// 真实场景：超星会把选项内容打乱，选项区只剩 A/B/C/D，真正的选项文字写在题干里。
++	// 此时"字母"指的就是选项内容标号，必须按**内容**匹配；按位置映射会点错选项。
++	if (isLetterOnlyOptions(options)) {
++		const hit = matchLettersToOptions(allAnswer, options);
++		if (hit.length) {
++			return { finish: true, option: hit[0] };
++		}
++	}
++
+ 	// ========== 阶段1: 归一化精确匹配 ==========
+ 	const normalizedResult = answerNormalizedMatch(allAnswer, optionStrings);
+ 	if (normalizedResult.length) {
+@@ -62,6 +72,13 @@ export function resolveSingle(answers: string[], options: string[], separators?:
+ 		const ans = resolvePlainAnswer(StringUtils.nowrap(answer, '').trim());
+ 		// 单选仅允许单字母答案（多字母视为多选答案，不在此处理）
+ 		if (ans && ans.length === 1) {
++			// 站点可能打乱选项顺序：此时"选项文本本身就是字母"（选项区只显示 A/B/C/D，
++			// 真正的选项内容写在题干里）。这种情况下必须按**文本**匹配，
++			// 按位置映射会点到内容不同的选项（实测：可见 B 的内容是 D）。
++			const labelIndex = optionStrings.findIndex((opt) => opt.trim().toUpperCase() === ans);
++			if (labelIndex !== -1) {
++				return { finish: true, option: options[labelIndex] };
++			}
+ 			const index = ans.charCodeAt(0) - 65;
+ 			if (optionStrings[index] !== undefined) {
+ 				return { finish: true, option: options[index] };
+@@ -84,3 +101,39 @@ export function resolveSingle(answers: string[], options: string[], separators?:
+ 
+ 	return { finish: false, allAnswer, options: optionStrings };
+ }
++
++/**
++ * 选项区是否"只显示字母"。
++ *
++ * 站点（如超星）在打乱选项顺序后，选项区可能只剩 A/B/C/D 这类标号，
++ * 真正的选项文字写在题干里。此时答案里的字母代表**内容标号**，不是位置。
++ */
++export function isLetterOnlyOptions(options: string[]): boolean {
++	return options.length > 0 && options.every((o) => /^[A-J]$/i.test(String(o ?? '').trim()));
++}
++
++/**
++ * 按"选项内容 == 字母"把答案字母映射到选项。
++ *
++ * 例：options = ['A','D','C','B']，答案 'B' → 返回 ['B']（对应可见位置第 4 个）。
++ * 返回的是**选项文本**（与 options 中的元素一致），供上层定位点击目标。
++ */
++export function matchLettersToOptions(answers: string[], options: string[]): string[] {
++	const byLetter = new Map<string, string>();
++	for (const opt of options) {
++		const key = String(opt ?? '').trim().toUpperCase();
++		if (/^[A-J]$/.test(key) && !byLetter.has(key)) {
++			byLetter.set(key, opt);
++		}
++	}
++	const out: string[] = [];
++	for (const answer of answers) {
++		for (const ch of String(answer ?? '').toUpperCase()) {
++			const opt = byLetter.get(ch);
++			if (opt !== undefined && !out.includes(opt)) {
++				out.push(opt);
++			}
++		}
++	}
++	return out;
++}
 diff --git a/packages/core/src/core/worker/utils.ts b/packages/core/src/core/worker/utils.ts
 index 594dab4..1f8d4dd 100644
 --- a/packages/core/src/core/worker/utils.ts
@@ -12914,7 +13028,7 @@ index 74b7d18..0000000
 -	readNotes
 -};
 diff --git a/scripts/build-core.js b/scripts/build-core.js
-index 2d2f0e9..727b2d7 100644
+index 2d2f0e9..f48c29e 100644
 --- a/scripts/build-core.js
 +++ b/scripts/build-core.js
 @@ -6,7 +6,7 @@ const util = require('util');
@@ -12926,10 +13040,12 @@ index 2d2f0e9..727b2d7 100644
  const path = require('path');
  const dotenv = require('dotenv');
  const fs = require('fs');
-@@ -24,6 +24,19 @@ function cleanOutput() {
+@@ -24,6 +24,21 @@ function cleanOutput() {
  
  async function testResolver() {
  	await execOut('tsx ../tests/resolver.test.ts');
++	// 字母答案的选项匹配（站点打乱选项顺序时按内容匹配，2026-11-11）
++	await execOut('tsx ../tests/letter-mapping.test.ts');
 +	// handler 是以字符串形式存在的运行期源码（由 Function() 求值），
 +	// tsc 查不出其中的引用错误，因此构建前必须真实求值并调用一遍。
 +	await execOut('tsx ../tests/cx-model.handler.test.ts');
@@ -12946,7 +13062,7 @@ index 2d2f0e9..727b2d7 100644
  }
  
  async function buildPackages() {
-@@ -48,18 +61,30 @@ async function createUserJs() {
+@@ -48,18 +63,30 @@ async function createUserJs() {
  	// @ts-ignore
  	const ocs = require(path.join(distPath, 'index.js'));
  
@@ -12983,7 +13099,7 @@ index 2d2f0e9..727b2d7 100644
  					.flat()
  			)
  		);
-@@ -76,23 +101,31 @@ async function createUserJs() {
+@@ -76,23 +103,31 @@ async function createUserJs() {
  				gap: '\t'.repeat(4)
  			},
  			metadata: {
@@ -12998,7 +13114,7 @@ index 2d2f0e9..727b2d7 100644
 +				name: 'CXStudy 超星助手',
 +				// 版本号显式写出：package.json 的 version 在本构建流程里没有生效（产物仍是旧版本号），
 +				// 而版本号决定油猴能否识别更新，必须准确。发版时递增此处与 package.json。
-+				version: '5.2.1-cxstudy.8',
++				version: '5.2.1-cxstudy.9',
 +				description:
 +					'超星学习通专用助手：以真实速率推进视频/音频/文档任务点，章节测验自动作答（支持图片题）。' +
 +					'基于 MIT 协议的 OCS 网课助手（https://github.com/ocsjs/ocsjs）衍生，仅保留超星学习通平台。',
@@ -13030,7 +13146,7 @@ index 2d2f0e9..727b2d7 100644
  				match: matchMetadata,
  				grant: [
  					'GM_info',
-@@ -106,13 +139,13 @@ async function createUserJs() {
+@@ -106,13 +141,13 @@ async function createUserJs() {
  					'GM_notification',
  					'GM_xmlhttpRequest',
  					'GM_getResourceText',
@@ -13046,7 +13162,7 @@ index 2d2f0e9..727b2d7 100644
  			},
  			entry: path.join(__dirname, '../packages/scripts/entry.js'),
  			dist: path.join(__dirname, distPath, 'ocs.user.js')
-@@ -122,8 +155,20 @@ async function createUserJs() {
+@@ -122,8 +157,20 @@ async function createUserJs() {
  	const officialOpts = createOptions();
  	console.log('CreateUserScript: ', officialOpts.metadata.name, officialOpts.dist);
  	await createUserScript(officialOpts);
@@ -13069,7 +13185,7 @@ index 2d2f0e9..727b2d7 100644
  
  	/** 创建调试脚本 */
  	const devOpts = createOptions();
-@@ -141,18 +186,6 @@ async function createUserJs() {
+@@ -141,18 +188,6 @@ async function createUserJs() {
  	);
  	console.log('createUserScript: ', devOpts.metadata.name, devOpts.dist);
  	await createUserScript(devOpts);
@@ -13756,6 +13872,101 @@ index 0000000..bc8f8a9
 +if (failures.length) {
 +	console.log('\n失败项：');
 +	failures.forEach((f) => console.log('  - ' + f));
++	process.exit(1);
++}
+diff --git a/tests/letter-mapping.test.ts b/tests/letter-mapping.test.ts
+new file mode 100644
+index 0000000..7008d6a
+--- /dev/null
++++ b/tests/letter-mapping.test.ts
+@@ -0,0 +1,89 @@
++/**
++ * SPDX-FileCopyrightText: 2026 Zefyro-N
++ * SPDX-License-Identifier: MIT
++ *
++ * 字母答案的选项匹配测试。
++ *
++ * 背景（2026-11-11 真实作业页实测）：
++ *   超星会打乱选项顺序，此时选项区只显示字母，真正的选项内容写在题干里：
++ *     可见位置 A → 内容 'A'
++ *     可见位置 B → 内容 'D'
++ *     可见位置 C → 内容 'C'
++ *     可见位置 D → 内容 'B'
++ *   模型回答 "B" 指的是题干里的 B 表述 → 必须点「内容为 B」的那个选项（可见位置 D）。
++ *   若按位置映射（字母 → 第几位），会点到内容为 D 的选项 → 必错。
++ *
++ * 因此匹配规则必须是：**先按"选项文本 == 字母"匹配，未命中再回退到按位置**。
++ * 普通题目（选项文本是完整句子）不会命中，行为与原来完全一致。
++ */
++import { resolveSingle } from '../packages/core/src/core/worker/resolvers/single';
++import { resolveMultiple } from '../packages/core/src/core/worker/resolvers/multiple';
++
++let pass = 0;
++let fail = 0;
++
++function ok(name: string, cond: boolean, detail?: unknown) {
++	if (cond) {
++		pass++;
++		console.log('    ✅ ' + name);
++	} else {
++		fail++;
++		console.log('    ❌ ' + name + (detail === undefined ? '' : '  → ' + JSON.stringify(detail)));
++	}
++}
++
++console.log('\n[字母答案 · 选项顺序被打乱的题型]');
++
++// 站点打乱后的选项内容顺序：A / D / C / B
++const shuffled = ['A', 'D', 'C', 'B'];
++
++// 模型答 B → 应命中"内容为 B"的选项（index 3）
++const rB = resolveSingle(['B'], shuffled);
++ok('单选 B → 命中内容为 B 的选项', rB.finish && rB.option === 'B', rB);
++
++// 模型答 D → 应命中 index 1
++const rD = resolveSingle(['D'], shuffled);
++ok('单选 D → 命中内容为 D 的选项', rD.finish && rD.option === 'D', rD);
++
++// 全部四个字母都应命中自身内容
++for (const letter of ['A', 'B', 'C', 'D']) {
++	const r = resolveSingle([letter], shuffled);
++	ok(`单选 ${letter} → 内容与字母一致`, r.finish && r.option === letter, r);
++}
++
++console.log('\n[字母答案 · 普通题目（顺序正常，不能改变原有行为）]');
++
++const normal = [
++	'A有n个不同的特征值',
++	'B有n个不同的特征向量',
++	'C有n个线性相关的特征向量',
++	'D有n个线性无关的特征向量'
++];
++const rNormal = resolveSingle(['B'], normal);
++ok('普通题 B → 仍按位置命中第 2 项', rNormal.finish && rNormal.option === normal[1], rNormal);
++
++const rNormalA = resolveSingle(['A'], normal);
++ok('普通题 A → 仍按位置命中第 1 项', rNormalA.finish && rNormalA.option === normal[0], rNormalA);
++
++const rNormalD = resolveSingle(['D'], normal);
++ok('普通题 D → 仍按位置命中第 4 项', rNormalD.finish && rNormalD.option === normal[3], rNormalD);
++
++console.log('\n[多选题 · 选项顺序被打乱]');
++
++const mShuffled = ['A', 'D', 'C', 'B'];
++const mAC = resolveMultiple(['A,C'], mShuffled);
++ok('多选 A,C → 命中内容 A 与 C', mAC.finish && (mAC as any).plainOptions?.length === 2, mAC);
++
++const mBD = resolveMultiple(['B,D'], mShuffled);
++ok('多选 B,D → 命中内容 B 与 D', mBD.finish && (mBD as any).plainOptions?.length === 2, mBD);
++
++console.log('\n[多选题 · 普通题目行为不变]');
++
++const mNormal = ['计算机网络', '操作系统', '数据结构', '编译原理'];
++const mAB = resolveMultiple(['A,B'], mNormal);
++ok('普通多选 A,B → 命中前两项', mAB.finish && (mAB as any).plainOptions?.length === 2, mAB);
++
++console.log('\n' + (fail === 0 ? '✅ ' : '❌ ') + `${pass} 通过   ❌ ${fail} 失败   共 ${pass + fail} 项\n`);
++if (fail > 0) {
 +	process.exit(1);
 +}
 diff --git a/tests/setup-browser-env.cjs b/tests/setup-browser-env.cjs
