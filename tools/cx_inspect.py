@@ -18,7 +18,7 @@ except Exception:
 
 from playwright.sync_api import sync_playwright
 
-CDP = "http://127.0.0.1:9222"
+CDP = "http://127.0.0.1:20022"
 LOGS = Path(r"E:\Code\ChaoXingStudy\.logs")
 
 # 只存在于我们这个构建里的字符串 —— 用来确认装的是不是我们的补丁版

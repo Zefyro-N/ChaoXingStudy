@@ -153,7 +153,36 @@ node tools/math-bench.mjs --garble-options --only A,V2
 
 ## 8. 待办（按优先级，从这里继续）
 
-### P0 · 公式选项残缺 → 自动截图（**用户说有测试样本了，先做这个**）
+### P0 · 选项字母映射错位（**2026-11-11 已实测确证，最优先**）
+
+真实作业页（线性代数，18 题）实测：**选项在页面上被打乱**，可见顺序 ≠ 原始字母。
+
+```
+Q1  A. text='A A'  aria='A A选择'
+    B. text='B D'  aria='D D选择'   ← 可见 B 实际是原始 D
+    C. text='C C'  aria='C C选择'
+    D. text='D B'  aria='B B选择'   ← 可见 D 实际是原始 B
+```
+
+→ 模型看到的是**可见顺序**，站点要的是**原始字母**；不映射就必然错位。
+这正是历史现象「我的答案 A / 正确答案 B」的真因，**不是模型答错**。
+
+**做法**：从 `.answerBg` 的 `aria-label`（形如 `"B B、xxx,选择"`）或隐藏域
+`input#answer<qid>` 读出「可见位 ↔ 原始字母」映射，再把模型答案做一次转换后填。
+**必须先用探针确认**：提交值到底要原始字母还是可见字母（对比 `input#answer<qid>` 在提交前后的值）。
+
+### P0 · 题干/选项是图片 → 视觉路线（同一批样本已确证）
+
+```
+题干含图片 : 17/18     ← 线性代数题干整段是 PNG（p.ananas.chaoxing.com）
+选项含图片 :  6/18
+选项文本几乎为空: 5/18
+```
+
+文本路径对这类题**根本无效**（bodyHead 里 `若方阵满足 ，则的特征值…` 就是公式被丢掉的痕迹）。
+→ 必须走**题干+选项整块截图 + 视觉模型**（现有的 `cx-screenshot.ts` 与 M13 截图路径可复用）。
+
+### P0（原计划，保留） · 公式选项残缺 → 自动截图
 
 **问题**：数学/物理题的选项在页面上是 MathJax/图片渲染，OCS 取到的是文本残片；
 即使模型答对，字母与选项的对应关系也可能错乱（实测该场景只剩 34%~50%）。
@@ -222,6 +251,49 @@ python tools\cx_inspect.py                       # 检查脚本是否注入/面�
 
 ---
 
+## 9.5 实测证据（2026-11-11，真实作业页）
+
+**样本**：线性代数「第十次作业-矩阵的对角化」18 题（单选 10 / 填空 2 / 判断 6），
+课程 `courseid=86653594` `clazzid=152588382`。
+
+**真实 DOM 结构**（作业作答页，题目在 `frame[0]`）：
+
+```
+题目容器 : div.questionLi.fontLabel.singleQuesId
+           [typename="单选题"] [id="question<qid>"] [data="<qid>"]
+题干     : h3.mark_name > p > img        ← 常整段是图片
+选项     : div.clearfix.answerBg.workTextWrap
+           [onclick="addChoice(this)"] [role="radio"] [aria-label="B B、xxx,选择"]
+隐藏字段 : input#answertype<qid> / input#answer<qid>   （题型 / 提交值）
+```
+
+**关键统计**：题干含图片 17/18；选项含图片 6/18；选项文本几乎为空 5/18；
+`aria-label` 可用 3/18。**选项顺序被页面打乱**（见 §8 P0）。
+
+**探针工具（新增，只读）**：
+
+| 工具 | 作用 |
+|---|---|
+| `tools/cx_probe_login.py` | 确认 CDP 连通 / 已登录 / iframe 数 / 页面文本头部 |
+| `tools/cx_probe_struct.py` | dump 各 frame 的真实结构（不猜选择器） |
+| `tools/cx_probe_options.py` | 统计题干/选项的图片与文本可用性，`--full` 打印每题明细 |
+
+**CDP 端口已从 9222 改为 20022**（重要）：
+`9222` 落在 Windows Hyper-V/WSL 的保留端口段 `9211–9310` 内，Chromium **无法绑定**。
+所有 `tools/*.py` 已统一改为 `20022`。启动方式：
+`python tools\cx_launch.py --url "<作业页>"`；若报「CDP 端口未就绪」而端口不在保留段内，
+检查是否有同 profile 的残留 Edge 进程（`browser-profile-edge`）并清理。
+
+### 9.6 面板标签含义（用户问过）
+
+| 标记 | 含义 |
+|---|---|
+| 🔴 `⚠ 随机填入` | **该题答案是脚本随机选的，很可能错**（tooltip：模型未给出可用答案）|
+| 🟠 `需手动作答` | 未自动填入（富文本/需上传附件），请复制答案手动作答 |
+
+注：`cxRandomFilled` 标记链路已完整（`cx.ts` 赋值 → `work.ts:442` → `common.ts:890` → `search.infos.ts:193`），
+`.8` 起随机兜底**默认关闭**，所以正常情况下不会出现红标。
+
 ## 10. 其它三个项目的状态（同一用户名下）
 
 | 项目 | 路径 | 状态 |
@@ -238,6 +310,8 @@ python tools\cx_inspect.py                       # 检查脚本是否注入/面�
 
 ## 11. 变更记录
 
+- **2026-11-11**：真实作业页探针完成（`tools/cx_probe_*.py`）；确证「题干是图片 + 选项顺序被打乱」；
+  CDP 端口 9222 → **20022**（Windows 保留端口段冲突）；面板标签含义写档
 - **2026-11（本轮）**：`.2 → .8`；新增 `tools/math-bench*`、`docs/analysis-answer-accuracy.md`；
   修复模型名、选择题字母输出、填空误伤、提示词质量、随机兜底默认值
 - 更早的历史见 `PROJECT.md` §1–§26

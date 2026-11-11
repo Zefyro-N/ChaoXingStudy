@@ -22,7 +22,7 @@ except Exception:
 
 from playwright.sync_api import sync_playwright
 
-CDP = "http://127.0.0.1:9222"
+CDP = "http://127.0.0.1:20022"
 LOGS = Path(r"E:\Code\ChaoXingStudy\.logs")
 REF_URL = "https://cdn.ocsjs.com/resources/font/font_ref_cx.bin"
 

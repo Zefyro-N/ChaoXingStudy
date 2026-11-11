@@ -21,7 +21,7 @@ except Exception:
 
 from playwright.sync_api import sync_playwright
 
-CDP = "http://127.0.0.1:9222"
+CDP = "http://127.0.0.1:20022"
 LOGS = Path(r"E:\Code\ChaoXingStudy\.logs")
 
 TAB_KEYWORDS = ["章节测验", "章节检测", "测验"]

@@ -22,7 +22,7 @@ except Exception:
 
 from playwright.sync_api import sync_playwright
 
-CDP = "http://127.0.0.1:9222"
+CDP = "http://127.0.0.1:20022"
 
 # 只允许这些词（导航性质）
 ALLOW = ["课程", "我的课程", "章节", "目录", "返回", "首页", "学习", "个人空间", "首页", "班级"]

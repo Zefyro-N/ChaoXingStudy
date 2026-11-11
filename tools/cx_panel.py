@@ -22,7 +22,7 @@ except Exception:
 
 from playwright.sync_api import sync_playwright
 
-CDP = "http://127.0.0.1:9222"
+CDP = "http://127.0.0.1:20022"
 LOGS = Path(r"E:\Code\ChaoXingStudy\.logs")
 
 SAFE_TABS = ["超星学习通", "通用", "其他", "课程学习", "全局设置", "高级设置", "关于", "搜索结果"]

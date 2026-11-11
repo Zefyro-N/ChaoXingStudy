@@ -26,7 +26,7 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(r"E:\Code\ChaoXingStudy")
 LOGS = ROOT / ".logs"
-CDP = "http://127.0.0.1:9222"
+CDP = "http://127.0.0.1:20022"
 
 # 可能的题目容器
 QUESTION_SELECTORS = [".questionLi", ".TiMu", ".mark_item", ".questionWrap", "[class*='question']"]

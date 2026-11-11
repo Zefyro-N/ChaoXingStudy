@@ -23,7 +23,7 @@ except Exception:
 
 from playwright.sync_api import sync_playwright
 
-CDP = "http://127.0.0.1:9222"
+CDP = "http://127.0.0.1:20022"
 ROOT = Path(r"E:\Code\ChaoXingStudy")
 
 # 噪声屏蔽表（改为黑名单：白名单会误杀关键日志）

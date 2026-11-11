@@ -28,7 +28,7 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(r"E:\Code\ChaoXingStudy")
 LOGS = ROOT / ".logs"
-CDP = "http://127.0.0.1:9222"
+CDP = "http://127.0.0.1:20022"
 
 # docs/cx-mechanisms.md §2.2 的任务点判据
 JOB_PROBES = {

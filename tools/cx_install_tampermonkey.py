@@ -25,7 +25,7 @@ except Exception:
 
 from playwright.sync_api import sync_playwright
 
-CDP = "http://127.0.0.1:9222"
+CDP = "http://127.0.0.1:20022"
 LOGS = Path(r"E:\Code\ChaoXingStudy\.logs")
 STORE_URL = "https://microsoftedge.microsoft.com/addons/detail/tampermonkey/iikmkjmpaadaobahmlepeloendndfphd"
 LOCAL_USERJS = "file:///E:/Code/ChaoXingStudy/dist/ocs.user.js"

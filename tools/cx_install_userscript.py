@@ -23,7 +23,7 @@ except Exception:
 
 from playwright.sync_api import sync_playwright
 
-CDP = "http://127.0.0.1:9222"
+CDP = "http://127.0.0.1:20022"
 LOGS = Path(r"E:\Code\ChaoXingStudy\.logs")
 TM_ID = "iikmkjmpaadaobahmlepeloendndfphd"
 DASHBOARD = f"chrome-extension://{TM_ID}/options.html#nav=dashboard"
