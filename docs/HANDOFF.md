@@ -278,7 +278,21 @@ $("#answer" + qid).val(choiceContent);
 → 图片必须在**页面上下文里** fetch 转 base64（现有 `captureElementAsDataUrl` / `imageToBase64` 路径就是），
 **不要在 Node/Python 侧下载**（必 403）。探针里看到 403 属于正常现象，不是 bug。
 
-### P0 · 题干/选项是图片 → 视觉路线（同一批样本已确证）
+### ✅ 已修 · 视觉路线（`5.2.1-cxstudy.10` 完成）
+
+`packages/scripts/src/utils/cx-screenshot-decision.ts` 新增 `decideScreenshot()`，触发条件按真实作业数据重排：
+
+```
+1 选项文本不可用（纯字母 A-J 或全空=选项是图片）  ← 新增，覆盖真实作业主场景
+2 题干文本信息不足且含图片（去掉题号/题型后 <6 字）← 新增
+3 题干文本为空 / 4 图片转换失败 / 5 题干含公式     ← 沿用
+```
+
+配套：`cxScreenshot` 默认值改为 **true**（label 改为「整题截图给视觉模型」）；
+截图经 `env.screenshot` 作为**最后一张图**附加，文本中已声明其含义；
+测试 `tests/cx-screenshot-decision.test.ts` 18 项（4 道真实样本题逐条断言）。
+
+### P0（历史）· 题干/选项是图片 → 视觉路线
 
 ```
 题干含图片 : 17/18     ← 线性代数题干整段是 PNG（p.ananas.chaoxing.com）

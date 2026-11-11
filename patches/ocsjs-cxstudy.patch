@@ -10,14 +10,14 @@ index 675a8fb..16d156f 100644
 +# 构建产物（本地 gulp 输出，不入库；对应 release/ocs.user.js）
 +release/
 diff --git a/package.json b/package.json
-index a715d35..44c2df3 100644
+index a715d35..11c4fb8 100644
 --- a/package.json
 +++ b/package.json
 @@ -1,6 +1,6 @@
  {
  	"name": "ocsjs",
 -	"version": "5.2.1",
-+	"version": "5.2.1-cxstudy.9",
++	"version": "5.2.1-cxstudy.10",
  	"description": "ocs - online course script 在线网络课程辅助工具",
  	"types": "./lib/src/core/index.d.ts",
  	"main": "./lib/src/core/index.js",
@@ -1539,7 +1539,7 @@ index c9f9c7a..1f7adf3 100644
  					.map((m) => {
  						const url = window.location.href;
 diff --git a/packages/scripts/src/projects/common.ts b/packages/scripts/src/projects/common.ts
-index aadb3d9..a38e0a8 100644
+index aadb3d9..9b7ee08 100644
 --- a/packages/scripts/src/projects/common.ts
 +++ b/packages/scripts/src/projects/common.ts
 @@ -1,4 +1,5 @@
@@ -1810,13 +1810,13 @@ index aadb3d9..a38e0a8 100644
 +				},
 +				// 截图兜底：文本/图片 URL 都拿不到时，把题目区域渲染成图片
 +				cxScreenshot: {
-+					label: '题干/选项取不到时截图给模型',
++					label: '整题截图给视觉模型',
 +					attrs: {
 +						type: 'checkbox',
 +						title:
 +							'开启后：当题干文本为空、或题目图片转换失败时，把题目区域渲染成图片一并发给模型（需同时开启「允许图片题」）。\n已知限制：SVG 渲染不加载页面自定义字体，因此对「混淆字体」类题目可能仍然无效；复杂布局的还原是近似的。\n只在文本路径明显不够用时才截图，不做无条件截图。'
 +					},
-+					defaultValue: false
++					defaultValue: true
 +				},
 +				cxModelApiKey: {
 +					label: '模型 API Key',
@@ -11959,6 +11959,125 @@ index 0000000..8af7aac
 +		return { ok: false, message: '连接失败：' + msg };
 +	}
 +}
+diff --git a/packages/scripts/src/utils/cx-screenshot-decision.ts b/packages/scripts/src/utils/cx-screenshot-decision.ts
+new file mode 100644
+index 0000000..77ba01d
+--- /dev/null
++++ b/packages/scripts/src/utils/cx-screenshot-decision.ts
+@@ -0,0 +1,113 @@
++/**
++ * SPDX-FileCopyrightText: 2026 Zefyro-N
++ * SPDX-License-Identifier: MIT
++ *
++ * 判断「这道题是否需要整题截图交给视觉模型」。
++ *
++ * 背景（2026-11-11 真实作业页实测，18 题线性代数作业）：
++ *   题干含图片 : 17/18   ← 题干整段是 PNG（LaTeX 渲染图）
++ *   选项含图片 :  6/18
++ *   选项文本只有 1-2 个字（纯字母）: 14/18
++ *   → 文本路径拿到的题干是「6. (单选题) 已知三阶矩阵的特征值…则= ( )」，
++ *     选项是 "A" "D" "C" "B"，模型等于在看不见题目的情况下作答。
++ *
++ * 原有三种触发条件（题干文本为空 / 图片转换失败 / 题干含公式符号）对这类题**都不触发**：
++ * 题干文本不空、图片在页内转换成功、公式是图片而不是符号。因此补两条判据。
++ */
++
++export interface ScreenshotDecisionInput {
++	/** 题干文本（已提取，可能含 [图片N] 占位符） */
++	title: string;
++	/** 选项文本，已按行拼接（每个选项一行） */
++	optionsText: string;
++	/** 成功转换的图片数量（能真正发给模型的） */
++	imageUrlCount: number;
++	/** 题目里是否检测到图片（DOM 或文本里的 URL） */
++	questionHasImages: boolean;
++}
++
++/**
++ * 选项文本不可用：站点把选项内容渲染成图片，或选项区只显示字母。
++ *
++ * 判据（保守）：
++ *   - 至少 2 个选项
++ *   - 且每个选项要么为空，要么就是一个字母（A-J）
++ *
++ * 注意：「正确」「错误」这类判断题选项不会被误判（长度 > 1 且不是单字母）。
++ */
++export function isOptionsUnusable(optionsText: string): boolean {
++	const raw = String(optionsText ?? '')
++		.split('\n')
++		.map((s) => s.trim());
++	if (raw.length < 2) return false;
++	const opts = raw.filter((s) => s.length > 0);
++	// 全部为空：选项内容是图片，文本一个都取不到
++	if (opts.length === 0) return true;
++	return opts.every((o) => /^[A-J]$/i.test(o));
++}
++
++/**
++ * 题干文本信息量不足：去掉题号/题型标记后几乎没内容，且题目里有图片。
++ *
++ * 例：「6. (单选题)」→ 去掉后为空 → 信息全在图片里 → 需要截图。
++ * 反例：「4. (单选题) n阶方阵A与对角阵相似的充分必要条件是：A. A有n个…」→ 信息充足 → 不截图。
++ */
++export function isStemInsufficient(title: string, questionHasImages: boolean): boolean {
++	if (!questionHasImages) return false;
++	const stripped = String(title ?? '')
++		// 题号、题型标记、标点、常见无信息词
++		.replace(/[0-9０-９]/g, '')
++		.replace(/[（(]\s*(单选题|多选题|判断题|填空题|简答题|计算题|论述题|名词解释)\s*[）)]/g, '')
++		.replace(/[.\s、，。：:；;（）()\[\]【】《》"'"']/g, '')
++		.replace(/图片\d*/g, '')
++		.replace(/(下列|以下|关于|的是|正确|错误|分别)/g, '');
++	return stripped.length < 6;
++}
++
++/** 题干是否含复杂公式符号（沿用原有判据） */
++export function looksLikeFormula(title: string): boolean {
++	const mathChars = (String(title ?? '').match(/[√∑∫≠≤≥±∞∈∀∃⇒⇔αβγθλμσπΔΩ²³₁₂₃]/g) || []).length;
++	return /\\[a-zA-Z]{2,}|[\^_]\{?[0-9a-zA-Z]|<math/i.test(String(title ?? '')) || mathChars >= 2;
++}
++
++/** 题干文本是否为空（沿用原有判据） */
++export function isTitleBlank(title: string): boolean {
++	return !title || title.replace(/[\s\[\]图片\d]/g, '').length < 2;
++}
++
++export interface ScreenshotDecision {
++	need: boolean;
++	/** 触发原因（用于日志与排查） */
++	reason: string;
++}
++
++/**
++ * 综合判断是否需要整题截图。
++ *
++ * 顺序即优先级：越靠前的越确定。
++ */
++export function decideScreenshot(input: ScreenshotDecisionInput): ScreenshotDecision {
++	const { title, optionsText, imageUrlCount, questionHasImages } = input;
++
++	// 1. 选项不可用（选项内容是图片/只有字母）—— 本次新增，覆盖真实作业的主要场景
++	if (isOptionsUnusable(optionsText)) {
++		return { need: true, reason: '选项文本不可用（纯字母或图片）' };
++	}
++	// 2. 题干信息量不足且有图片 —— 本次新增
++	if (isStemInsufficient(title, questionHasImages)) {
++		return { need: true, reason: '题干文本信息不足且含图片' };
++	}
++	// 3. 题干文本为空
++	if (isTitleBlank(title)) {
++		return { need: true, reason: '题干文本为空' };
++	}
++	// 4. 有图片但一张都没转换成功
++	if (questionHasImages && imageUrlCount === 0) {
++		return { need: true, reason: '图片转换失败' };
++	}
++	// 5. 题干含复杂公式
++	if (looksLikeFormula(title)) {
++		return { need: true, reason: '题干含公式' };
++	}
++	return { need: false, reason: '' };
++}
 diff --git a/packages/scripts/src/utils/cx-screenshot.ts b/packages/scripts/src/utils/cx-screenshot.ts
 new file mode 100644
 index 0000000..d4ce7a9
@@ -12718,10 +12837,10 @@ index f62ee3a..5a64aa5 100644
  /** 加载中旋转图标（旋转动画由 custom.less 的 .aw-spin 控制） */
  export const loadingSpinSvg = `<svg class="aw-spin" width="14" height="14" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="28" stroke-dashoffset="10" stroke-linecap="round"/></svg>`;
 diff --git a/packages/scripts/src/utils/work.ts b/packages/scripts/src/utils/work.ts
-index fce71af..34286c7 100644
+index fce71af..6db14b3 100644
 --- a/packages/scripts/src/utils/work.ts
 +++ b/packages/scripts/src/utils/work.ts
-@@ -8,11 +8,15 @@ import {
+@@ -8,11 +8,16 @@ import {
  	WorkContext,
  	$
  } from '@ocsjs/core';
@@ -12733,12 +12852,13 @@ index fce71af..34286c7 100644
  import { createIframeControlSession } from './iframe-control-bar';
 +/* 截图兜底 */
 +import { captureElementAsDataUrl } from './cx-screenshot';
++import { decideScreenshot } from './cx-screenshot-decision';
 +/* 作业/考试手动触发闸门 */
 +import { cxWorkGate } from './cx-work-gate';
  import {
  	buildAnswererEnv,
  	createAnswererWrappersSignature,
-@@ -216,34 +220,37 @@ export function commonWork(options: {
+@@ -216,34 +221,37 @@ export function commonWork(options: {
  	if (options.mount_script) bindCommonWorkRender(options.mount_script, renderPanelBody);
  
  	let checkMessage: MessageElement | Promise<void> | undefined;
@@ -12802,7 +12922,7 @@ index fce71af..34286c7 100644
  		});
  	}
  
-@@ -430,6 +437,10 @@ export function simplifyWorkResult(
+@@ -430,6 +438,10 @@ export function simplifyWorkResult(
  		resolved: wr.resolved,
  		error: wr.error,
  		type: wr.ctx?.type,
@@ -12813,7 +12933,7 @@ index fce71af..34286c7 100644
  		question,
  		finish: wr.result?.finish,
  		searchInfos:
-@@ -533,12 +544,16 @@ export function createCommonAnswerer(options: {
+@@ -533,12 +545,16 @@ export function createCommonAnswerer(options: {
  							.map((o: HTMLElement | undefined) => o!.innerText)
  							.join('\n')
  			);
@@ -12831,7 +12951,7 @@ index fce71af..34286c7 100644
  				imageOptimizeOffWarned = true;
  				$message.warn({
  					content: '检测到题目包含图片，但未开启「图片题优化」（通用-全局设置-高级设置中开启），图片题将无法搜题。',
-@@ -551,12 +566,12 @@ export function createCommonAnswerer(options: {
+@@ -551,12 +567,12 @@ export function createCommonAnswerer(options: {
  				options: optResult.text,
  				titleImages,
  				optionsImages: optResult.images,
@@ -12846,26 +12966,22 @@ index fce71af..34286c7 100644
  				imageUrls.length === 0 &&
  				!imageConvertFailWarned
  			) {
-@@ -566,6 +581,31 @@ export function createCommonAnswerer(options: {
+@@ -566,6 +582,27 @@ export function createCommonAnswerer(options: {
  					duration: 10
  				});
  			}
 +			// 截图兜底：只在“文本路径明显不够用”时才截图，
 +			// 避免无条件截图（会显著增加请求体积与 token）
 +			if ((CommonProject.scripts.settings.cfg as any).cxScreenshot) {
-+				const titleBlank = !title || title.replace(/[\s\[\]图片\d]/g, '').length < 2;
-+				const imagesLost = questionHasImages && imageUrls.length === 0;
-+				// 含复杂公式的题干：文本提取容易失真（上下标、分式、根号、求和等），
-+				// 直接截图交给模型比解析 HTML/MathML 可靠
-+				const mathChars = (title.match(/[√∑∫≠≤≥±∞∈∀∃⇒⇔αβγθλμσπΔΩ²³₁₂₃]/g) || []).length;
-+				const looksLikeFormula =
-+					/\\[a-zA-Z]{2,}|[\^_]\{?[0-9a-zA-Z]|<math/i.test(title) || mathChars >= 2;
-+				if (titleBlank || imagesLost || looksLikeFormula) {
-+					$console.log(
-+						'[CXStudy] 触发截图兜底（' +
-+							(titleBlank ? '题干文本为空' : imagesLost ? '图片转换失败' : '题干含公式') +
-+							'）'
-+					);
++				// 触发条件抽成纯函数（cx-screenshot-decision.ts），便于单测覆盖真实题型
++				const decision = decideScreenshot({
++					title,
++					optionsText: optResult.text,
++					imageUrlCount: imageUrls.length,
++					questionHasImages
++				});
++				if (decision.need) {
++					$console.log('[CXStudy] 触发截图兜底（' + decision.reason + '）');
 +					const shot = await captureElementAsDataUrl(ctx.root, imageToBase64);
 +					if (shot) {
 +						env.screenshot = shot;
@@ -13028,7 +13144,7 @@ index 74b7d18..0000000
 -	readNotes
 -};
 diff --git a/scripts/build-core.js b/scripts/build-core.js
-index 2d2f0e9..f48c29e 100644
+index 2d2f0e9..9b19b56 100644
 --- a/scripts/build-core.js
 +++ b/scripts/build-core.js
 @@ -6,7 +6,7 @@ const util = require('util');
@@ -13040,12 +13156,14 @@ index 2d2f0e9..f48c29e 100644
  const path = require('path');
  const dotenv = require('dotenv');
  const fs = require('fs');
-@@ -24,6 +24,21 @@ function cleanOutput() {
+@@ -24,6 +24,23 @@ function cleanOutput() {
  
  async function testResolver() {
  	await execOut('tsx ../tests/resolver.test.ts');
 +	// 字母答案的选项匹配（站点打乱选项顺序时按内容匹配，2026-11-11）
 +	await execOut('tsx ../tests/letter-mapping.test.ts');
++	// 整题截图触发条件（真实作业页数据驱动，2026-11-11）
++	await execOut('tsx ../tests/cx-screenshot-decision.test.ts');
 +	// handler 是以字符串形式存在的运行期源码（由 Function() 求值），
 +	// tsc 查不出其中的引用错误，因此构建前必须真实求值并调用一遍。
 +	await execOut('tsx ../tests/cx-model.handler.test.ts');
@@ -13062,7 +13180,7 @@ index 2d2f0e9..f48c29e 100644
  }
  
  async function buildPackages() {
-@@ -48,18 +63,30 @@ async function createUserJs() {
+@@ -48,18 +65,30 @@ async function createUserJs() {
  	// @ts-ignore
  	const ocs = require(path.join(distPath, 'index.js'));
  
@@ -13099,7 +13217,7 @@ index 2d2f0e9..f48c29e 100644
  					.flat()
  			)
  		);
-@@ -76,23 +103,31 @@ async function createUserJs() {
+@@ -76,23 +105,31 @@ async function createUserJs() {
  				gap: '\t'.repeat(4)
  			},
  			metadata: {
@@ -13114,7 +13232,7 @@ index 2d2f0e9..f48c29e 100644
 +				name: 'CXStudy 超星助手',
 +				// 版本号显式写出：package.json 的 version 在本构建流程里没有生效（产物仍是旧版本号），
 +				// 而版本号决定油猴能否识别更新，必须准确。发版时递增此处与 package.json。
-+				version: '5.2.1-cxstudy.9',
++				version: '5.2.1-cxstudy.10',
 +				description:
 +					'超星学习通专用助手：以真实速率推进视频/音频/文档任务点，章节测验自动作答（支持图片题）。' +
 +					'基于 MIT 协议的 OCS 网课助手（https://github.com/ocsjs/ocsjs）衍生，仅保留超星学习通平台。',
@@ -13146,7 +13264,7 @@ index 2d2f0e9..f48c29e 100644
  				match: matchMetadata,
  				grant: [
  					'GM_info',
-@@ -106,13 +141,13 @@ async function createUserJs() {
+@@ -106,13 +143,13 @@ async function createUserJs() {
  					'GM_notification',
  					'GM_xmlhttpRequest',
  					'GM_getResourceText',
@@ -13162,7 +13280,7 @@ index 2d2f0e9..f48c29e 100644
  			},
  			entry: path.join(__dirname, '../packages/scripts/entry.js'),
  			dist: path.join(__dirname, distPath, 'ocs.user.js')
-@@ -122,8 +157,20 @@ async function createUserJs() {
+@@ -122,8 +159,20 @@ async function createUserJs() {
  	const officialOpts = createOptions();
  	console.log('CreateUserScript: ', officialOpts.metadata.name, officialOpts.dist);
  	await createUserScript(officialOpts);
@@ -13185,7 +13303,7 @@ index 2d2f0e9..f48c29e 100644
  
  	/** 创建调试脚本 */
  	const devOpts = createOptions();
-@@ -141,18 +188,6 @@ async function createUserJs() {
+@@ -141,18 +190,6 @@ async function createUserJs() {
  	);
  	console.log('createUserScript: ', devOpts.metadata.name, devOpts.dist);
  	await createUserScript(devOpts);
@@ -13650,6 +13768,114 @@ index 0000000..d938364
 +	failures.forEach((f) => console.log('  - ' + f));
 +	process.exit(1);
 +}
+diff --git a/tests/cx-screenshot-decision.test.ts b/tests/cx-screenshot-decision.test.ts
+new file mode 100644
+index 0000000..49d5ca2
+--- /dev/null
++++ b/tests/cx-screenshot-decision.test.ts
+@@ -0,0 +1,102 @@
++/**
++ * SPDX-FileCopyrightText: 2026 Zefyro-N
++ * SPDX-License-Identifier: MIT
++ *
++ * 整题截图触发条件测试（真实作业页实测数据驱动）。
++ */
++import {
++	decideScreenshot,
++	isOptionsUnusable,
++	isStemInsufficient,
++	looksLikeFormula,
++	isTitleBlank
++} from '../packages/scripts/src/utils/cx-screenshot-decision';
++
++let pass = 0;
++let fail = 0;
++function ok(name: string, cond: boolean, detail?: unknown) {
++	if (cond) {
++		pass++;
++		console.log('    ✅ ' + name);
++	} else {
++		fail++;
++		console.log('    ❌ ' + name + (detail === undefined ? '' : '  → ' + JSON.stringify(detail)));
++	}
++}
++
++console.log('\n[选项不可用：纯字母 / 图片选项]');
++
++ok('A/B/C/D 四行 → 不可用', isOptionsUnusable('A\nB\nC\nD'));
++ok('乱序字母 A/D/C/B → 不可用', isOptionsUnusable('A\nD\nC\nB'));
++ok('空选项（全是图片）→ 不可用', isOptionsUnusable('\n\n\n'));
++ok('判断题 正确/错误 → 可用', !isOptionsUnusable('正确\n错误'));
++ok('正常句子选项 → 可用', !isOptionsUnusable('A有n个不同的特征值\nB有n个不同的特征向量'));
++ok('单选项不算（不足 2 个）→ 可用', !isOptionsUnusable('A'));
++
++console.log('\n[题干信息量不足]');
++ok('「6. (单选题)」+ 有图 → 不足', isStemInsufficient('6. (单选题)', true));
++ok('「2. (单选题)」+ 有图 → 不足', isStemInsufficient('2. (单选题)', true));
++ok('同上但无图 → 不判定（避免误截图）', !isStemInsufficient('6. (单选题)', false));
++ok(
++	'完整文本题 → 充足',
++	!isStemInsufficient(
++		'4. (单选题) n阶方阵A与对角阵相似的充分必要条件是：A. A有n个不同的特征值. B. A有n个不同的特征向量.',
++		true
++	)
++);
++
++console.log('\n[沿用判据]');
++ok('题干为空（只剩题号）', isTitleBlank('6. '));
++ok('题干含公式符号', looksLikeFormula('求 ∫∑ 的值'));
++ok('普通题干不含公式', !looksLikeFormula('下列表述错误的是'));
++
++console.log('\n[综合判定：真实作业的 6 道样本题]');
++
++const cases: Array<[string, any, string]> = [
++	[
++		'Q1 选项纯字母（乱序）',
++		{ title: '1. (单选题) 下列表述错误的是：A.若A是可逆矩阵…', optionsText: 'A\nD\nC\nB', imageUrlCount: 6, questionHasImages: true },
++		'选项文本不可用'
++	],
++	[
++		'Q2 题干只有题号+选项全图',
++		{ title: '2. (单选题)', optionsText: '\n\n\n', imageUrlCount: 5, questionHasImages: true },
++		'选项文本不可用'
++	],
++	[
++		'Q3 混合（3 句 + 1 图）',
++		{ title: '3. (单选题)', optionsText: '-1、6、9\n12、-4、-3\n\n2、5、6', imageUrlCount: 5, questionHasImages: true },
++		'题干文本信息不足'
++	],
++	[
++		'Q4 完整文本题（三项都无图）',
++		{
++			title: '4. (单选题) n阶方阵A与对角阵相似的充分必要条件是：',
++			optionsText: 'A有n个不同的特征值\nA有n个不同的特征向量\nA有n个线性相关的特征向量\nA有n个线性无关的特征向量',
++			imageUrlCount: 0,
++			questionHasImages: false
++		},
++		'不截图'
++	]
++];
++
++for (const [name, input, expect] of cases) {
++	const d = decideScreenshot(input);
++	if (expect === '不截图') {
++		ok(`${name} → 不截图`, !d.need, d);
++	} else {
++		ok(`${name} → ${expect}`, d.need && d.reason.includes(expect), d);
++	}
++}
++
++console.log('\n[图片转换失败仍要截图]');
++const lost = decideScreenshot({
++	title: '5. (单选题) 已知三阶矩阵的特征值为1, 2, 3, 则= ( )',
++	optionsText: 'A 10\nB -18\nC -10\nD 18',
++	imageUrlCount: 0,
++	questionHasImages: true
++});
++ok('有图但 0 张转换成功 → 截图', lost.need && lost.reason.includes('图片转换失败'), lost);
++
++console.log('\n' + (fail === 0 ? '✅ ' : '❌ ') + `${pass} 通过   ❌ ${fail} 失败   共 ${pass + fail} 项\n`);
++if (fail > 0) process.exit(1);
 diff --git a/tests/cx-videoquiz.test.ts b/tests/cx-videoquiz.test.ts
 new file mode 100644
 index 0000000..bc8f8a9
