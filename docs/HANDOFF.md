@@ -1,276 +1,243 @@
 # 交接文档（HANDOFF）
 
-> **本文件用途**：让新会话（或未来的我 / 其他人）在**不回溯对话历史**的情况下，5 分钟内接手本项目。
-> 历史细节在 `PROJECT.md`（§1–§26，1297 行）；**本文件只写"现在是什么状态、怎么继续"**。
+> **用途**：让新会话在**不回溯对话历史**的情况下 5 分钟内接手。
+> 历史细节见 `PROJECT.md`（§1–§26）；**答题准确率专题**见 `docs/analysis-answer-accuracy.md`（§1–§9）。
 >
-> 归档时间：2026-10-18 · 归档时工作区：`E:\Code\ChaoXingStudy`
+> 最后更新：`5.2.1-cxstudy.8` 完成后（本地已构建，**未发布**）。
 
 ---
 
 ## 0. 一句话现状
 
-**版本 `5.2.1-cxstudy.2` 已在 GitHub 公开发布并可正常安装；`5.2.1-cxstudy.3` 已在本地构建（含"多空题逐空显示与逐空复制"），但尚未实机验证、尚未发布。**
+**本地版本 `5.2.1-cxstudy.8`（488,475 B，测试 302 项全绿）已就绪但未发布；
+GitHub 上仍是最早的 `5.2.1-cxstudy.2`，落后 6 个版本。**
 
-唯一待办：**实测 `.3` → 通过后发版**。
-
----
-
-## 1. 怎么让我（AI）继续这个项目
-
-**你只需要说这一句**（可直接复制）：
-
-> 接着做 `E:\Code\ChaoXingStudy` 的学习通脚本。
-> 先完整读 `docs/HANDOFF.md`，再读 `PROJECT.md` 的 §19（交接）与最后一章；
-> 然后按 HANDOFF 的"§5 唯一待办"继续。
-
-我会做的事（已写进文档，不必你再提醒）：
-1. 读 `docs/HANDOFF.md` + `PROJECT.md` 末尾章节
-2. `git -C refs/ocsjs log --oneline -5` 与 `git log --oneline -5` 核对进度是否与文档一致
-3. 从 §5 的待办继续，并遵守 §7 的红线
-
-**若你只说"继续学习通"，我应该主动去读这两个文件，而不是让你复述。**
+当前工作主线：**提升答题正确率**。已完成"格式层"改造（选择题只输出字母 + 保守归一化 + 质量优先提示词 + 随机兜底默认关），
+**下一步是有真实样本后做 DOM 探针，解决"公式选项残缺"这条最后的准确率短板。**
 
 ---
 
-## 2. 三条路径（先认清"哪个仓库是哪层"）
+## 1. 怎么让我续接（用户只需说一句）
 
-| 层 | 路径 | 什么时候动它 |
+> 接着做 `E:\Code\ChaoXingStudy`。先读 `docs/HANDOFF.md` 和 `docs/analysis-answer-accuracy.md`，
+> 然后按 HANDOFF §8 待办继续。我这边有测试样本了，先做探针。
+
+我会主动做的：读这两份文档 → `git -C refs/ocsjs log --oneline -5` 核对进度 → 从 §8 待办继续 → 遵守 §9 红线。
+
+---
+
+## 2. 三层仓库
+
+| 层 | 路径 | 说明 |
 |---|---|---|
-| **总项目（本地存档）** | `E:\Code\ChaoXingStudy` | 构建、测试、补丁导出、文档；**无 remote，不推送** |
-| **fork 源码（真正改代码的地方）** | `E:\Code\ChaoXingStudy\refs\ocsjs` | 所有源码修改都在这里（独立 git，上游基线 `8b25a3f4…`） |
-| **发布仓库（公开）** | `E:\Code\ChaoXingStudy\.publish` | 只放产物与补丁；remote = `https://github.com/Zefyro-N/CXStudy.git` |
+| 总项目（本地存档） | `E:\Code\ChaoXingStudy` | 构建、测试、补丁、文档；**无 remote** |
+| fork 源码（改代码处） | `E:\Code\ChaoXingStudy\refs\ocsjs` | 独立 git；上游基线 `8b25a3f4…` |
+| 发布仓库（公开） | `E:\Code\ChaoXingStudy\.publish` | remote `https://github.com/Zefyro-N/CXStudy.git`；分支 `main` |
 
-上游项目：`ocsjs/ocsjs`（MIT，作者 enncy）。本项目是**fork + 补丁**，不是自研。
-
-**公开分发**：
-- 安装链接 `https://raw.githubusercontent.com/Zefyro-N/CXStudy/main/ocs.user.js`（`@updateURL` 指向此处）
-- Releases `https://github.com/Zefyro-N/CXStudy/releases`（已发 `v5.2.1-cxstudy.1`、`v5.2.1-cxstudy.2`）
+安装链接：`https://raw.githubusercontent.com/Zefyro-N/CXStudy/main/ocs.user.js`
 
 ---
 
-## 3. 状态快照（归档时刻，均已核实）
+## 3. 状态快照（2026-11）
 
 ```
-dist/ocs.user.js        484,656 bytes   @version 5.2.1-cxstudy.3   ← 本地已建，未发布
-                          SHA256 9931282235c9f6ceb050be994e114fff81ec2ce9a25b0d0c016eca2a31e1b74c
-.publish/ocs.user.js    481,758 bytes   = 已发布的 .2（线上就是这个）
-                          SHA256 7A67DA07718F6E373754BC83E4839819B5B6A5CA136BFCE1A268A566B07BD8EB
-patches/ocsjs-cxstudy.patch  505,148 bytes
+dist/ocs.user.js     488,475 B   @version 5.2.1-cxstudy.8
+                      SHA256 9e2c53fe9205982223ac9b77530a392b5303ae0db80fa3b4c39162a404f1d68f
+.publish/ocs.user.js 481,758 B   @version 5.2.1-cxstudy.2   ← 线上就是这个（落后 6 版）
+patches/ocsjs-cxstudy.patch      （每次提交前重新导出）
 ```
 
-| 仓库 | HEAD | 说明 |
+| 仓库 | HEAD |
+|---|---|
+| 外仓 | `829de8a` feat: 随机兜底改为默认关闭 |
+| `refs/ocsjs` | `ae42e6c` 同上 |
+| `.publish` | `bcfaf6c`（release .2） |
+
+**测试（构建时自动跑，全绿才产出）**：`resolver 164` + `cx-model.handler 88` + `blank-answers 20` + `cx-videoquiz 30` = **302**
+
+---
+
+## 4. 本轮改动：`.2 → .8`（每个都有动机与证据）
+
+| 版本 | 改动 | 依据 |
 |---|---|---|
-| 外仓（本地） | `f454a99` | feat(blank): 多空题逐空显示与逐空复制 |
-| `refs/ocsjs` | `939e2b5` | 同上（内层） |
-| `.publish` | `bcfaf6c` | release: 版本递增至 5.2.1-cxstudy.2 |
+| `.3` | 多空题逐空显示与复制（提示词规定「第N空：」格式） | 用户要求 |
+| `.4` | **模型名按提供商分开**：opencode-go `deepseek-v4.1-flash` / deepseek 官方 `deepseek-flash` | 实测官方 `GET /models` 只有 `deepseek-flash`、`deepseek-v4-pro`；传 v4.1-flash 直接 400 |
+| `.5` | **选择题只输出选项字母** + 响应归一化 | 10 道线性代数实测：输出全文 40% → 只输出字母 90% |
+| `.6` | **修复 .5 归一化误伤填空题**（改保守） | 26 个填空答案差分，.5 误改 7 处（`A、B 两点间距离`→`A` 等） |
+| `.7` | **提示词改「质量优先」结构化版** | 用户指出旧版只讲格式、不讲正确率，且第 6 条鼓励瞎猜 |
+| `.8` | **随机兜底默认关闭**（`cxRandomFallback: true → false`） | 随机答案必然判错却显示"已作答"，且写进真实成绩 |
 
-三个仓库归档时**均为 clean**。
+### 4.1 关键发现（准确率专题的核心结论）
+
+1. **模型分析能力没问题**：干净选项下，旧/新提示词都是 **10/10**
+2. **瓶颈是"输出格式 → 匹配"**：线性代数选项彼此极像（差一个符号/顺序/系数），
+   "输出选项全文 + 相似匹配"会**静默挑错**（实测 40%）
+3. **只输出字母 = 严格占优**：干净场景一样是 100%，真实场景 90%（+50pp）
+4. **归一化必须保守**：拿不到题型时，"不明确就不动"
+
+### 4.2 当前提示词结构（`cx-model.ts` 的 `SYSTEM_PROMPT`）
+
+```
+# 角色          → 严谨解题专家，唯一目标是答案正确
+# 工作方式      → 1 先完整推导（不输出）2 必须自检 3 信息不足选最自洽 4 禁止编造 5 不拒绝作答
+# 输出格式      → 1 单选只输出字母 2 多选 A,C 3 判断不加标点 4 填空只输出答案
+                  5 多空题「第N空：」换行 6 主观题分点 7 [图片N] 说明 8 数学纯文本 9 禁止前后缀
+```
+
+### 4.3 响应归一化（`makeResponseHandler`，保守）
+
+只在"整段明显是选择题/判断题答案"时改写，其余原样返回：
+
+| 触发 | 例子 |
+|---|---|
+| 判断题=极性词 | `错误。`→`错误`、`×`→`错误`、`True`→`正确` |
+| 判断+简括注 | `错误（该说法不成立）`→`错误` |
+| 单选=单字母（可带括号） | `(B)`→`B` |
+| 多选=字母带分隔符 | `A、C`→`A,C`、`A，C`→`A,C` |
+| 显式前缀（必须带冒号/是） | `答案：C`→`C`、`答：2x+1`→`2x+1` |
+| 口语化短句 | `应该选 D`→`D` |
+| **其它** | **原样返回**（填空/主观/多空/选项原文） |
+
+> ⚠️ 不要放宽！v5 就是放宽后把填空题弄坏的（`选项一`→`一`、`A、B 两点间距离`→`A`）。
 
 ---
 
-## 4. 已交付的能力（用户可见，按功能而非按编号）
+## 5. 测量基建（本轮新增，务必复用）
 
-**学习流程**
-- 视频/音频/文档任务点自动推进，**锁定 1.0x**（无倍速、不拖拽、不改进度）
-- 章节测验：字体解密 + 模型答题 + 自动提交（无人值守场景）
-- 视频内弹题：模型作答（用户实测 100% 正确，**已冻结，不要动**）
-- 文档/图片阅读自动完成；进页面自动跳到第一个未完成点；全部完成后从头复习
+| 资产 | 用途 |
+|---|---|
+| `tools/math-bench-questions.json` | **10 道线性代数题**（题干/选项/正确答案/陷阱说明），答案人工核算 |
+| `tools/math-bench.mjs` | 基准脚本；变体 `O`=旧版全文输出、`A`=当前发货（字母）、`B`=精简版、`V2`=质量优先版 |
+| `docs/analysis-answer-accuracy.md` | 完整分析报告（§8 数学实测、§9 填空题事故复盘） |
 
-**答题辅助**
-- 所有题目都会搜答案并给出**可复制**的答案
-- 每题 `复制答案`；多空题 `第N空 [复制]` + `复制全部（按顺序）`
-- 状态标注：`⚠ 随机填入`（很可能错）、`需手动作答`
-- 主观题答案：显示 + 复制，**不自动填、不提交**
-- 图片题：多模态；题干取不到时截图给模型
-- **总开关**：关闭后不自动刷课/答题（面板手动「开始」不受影响）
-
-**作业/考试（红线）**
-- 默认**全关**，需**手动逐次**触发，必须风险声明，考试单独授权
-- **只要含主观题，绝不自动提交**（连点击提交都不做）
-
-**模型**
-- 仅 `opencode-go` / `deepseek` 官方；模型锁 `deepseek-v4.1-flash`
-- `max_tokens` 8192（推理模型会烧掉配额，低了会 content 为空）
-- API Key 只存 GM 存储；面板有「测试连接」「清除」，输入框为密码遮罩
-
-**界面**
-- 单平台分支（已删除 yuketang/icve/icourse/zjy/zhs 等，约 7500 行），产物约 484KB（原 916KB）
-- 已删除：播放倍数、使用教程、在线搜题（划词搜索）、百度一下、编辑框、桌面软件桥接、更新模块、面板缩放手柄
-
----
-
-## 5. 唯一待办（从这里继续）
-
-### 待办 1：实测 `5.2.1-cxstudy.3` 的「多空题逐空复制」
-
-**背景**：用户指出主观题答案里各空用「、」分隔，应逐空显示与复制。
-**做法（用户定的方向，正确）**：不猜分隔符，而是**用系统提示词规定模型输出格式** ——
-题干有多个空时输出 `第1空：…` / `第2空：…`（各占一行），解析端只认这个格式。
-
-**已完成的**：
-- 提示词第 9 条（`packages/scripts/src/utils/cx-model.ts`）
-- 解析器 `parseBlankAnswers`（`packages/core/src/core/worker/utils.ts`），**从严校验**：
-  编号必须 1..N 连续顺序、每空非空、必须有冒号，否则返回空数组 → 回退整段显示
-- 界面逐空渲染 + `复制全部（按顺序）`（`packages/scripts/src/elements/search.infos.ts`）
-- 测试 `tests/blank-answers.test.ts`（20 项，已接入构建）
-
-**离线已验**：4 套测试全绿（164 / 31 / 20 / 30）、平台校验通过、产物含新提示词与解析器。
-
-**离线验不了、必须实测的**：**模型是否真的按新格式输出**。
-- 成功 → 面板显示 `第1空 xxx [复制]` 逐行
-- 未遵循 → 回退为整段显示（**不会出错，只是没有逐空**）→ 需调提示词（例如把格式要求前置、或加"违反格式视为错误"）
-
-### 通过之后：发版 `.3`
+**用法**（Key 只从环境变量读，不落盘）：
 
 ```powershell
-# 1. 递增版本号（两处都要改，见 §8 陷阱 3）
-#    refs/ocsjs/scripts/build-core.js 里 version: '5.2.1-cxstudy.N'
-#    refs/ocsjs/package.json 的 version
-# 2. 重建 → 复制产物到 dist/
-# 3. 导出补丁
-# 4. 同步 .publish（ocs.user.js + patch），提交推送
-# 5. 建 Release（附 ocs.user.js / ocsjs-cxstudy.patch / SHA256SUMS.txt）
-# 6. 发布后验证：raw 链接与 release 链接的 SHA256 必须与本地一致
+cd E:\Code\ChaoXingStudy
+$env:DEEPSEEK_API_KEY = "sk-..."     # 用完请吊销
+node tools/math-bench.mjs                          # 干净选项
+node tools/math-bench.mjs --garble-options         # 模拟页面公式选项提取失败
+node tools/math-bench.mjs --garble-options --only A,V2
 ```
 
----
-
-## 6. 明确不做的事（不要再提、不要擅自加）
-
-| 项 | 结论 |
-|---|---|
-| 倍速 / 拖拽进度 / 改协议包 | **不做**（破坏 1.001x 验证与红线） |
-| 面板拖拽缩放 | **不做** —— 试了 5+ 轮，用户最终决定放弃，已删净（见 §9 教训） |
-| 人脸识别绕过、验证码识别/破解 | **不做**，只检测并停止 |
-| 重做刷满分（M15） | **关闭**，不再考虑 |
-| 章节测验外自动填入/提交 | **不做**（作业/考试只搜答案 + 可复制） |
-| 主观题自动填/按空自动填 | **不做**（只显示 + 复制） |
-| 拉取/恢复任何"辅助脚本"的外链 | 不做 |
+**已得数字**（选项扰动场景）：`O`(旧版全文) **40%** ／ `A`(字母) **90%** ／ `B`(字母) 90%
+`V2`（质量优先，即当前发货的 .7/.8 提示词）**尚未 A/B 实测**（Key 已吊销）。
 
 ---
 
-## 7. 硬约束（代码级强制，改代码前必读）
+## 6. 环境陷阱（重复踩过）
 
-1. **账号密码永不写入任何文件、永不交给第三方**；复用已有浏览器会话
-2. **GitHub token 永不落盘**（只走环境变量；推送时 `credential.helper=` 置空）
-3. **模型仅** `opencode-go` / `deepseek` 官方；**模型硬锁** `deepseek-v4.1-flash`
-4. **1.0x 锁死**；不 seek、不拖拽、不发协议包
-5. **作业/考试默认关**、手动触发、风险声明、考试单独授权
-6. **含主观题绝不自动提交**
-7. **总开关必须有**（关闭后无自动学习/答题，但面板手动可用）
-8. 公式一律**纯文本可粘贴**（Unicode 符号，禁 LaTeX/KaTeX）
-9. 这是**提效工具**，不是全自动答题机 —— 不做功能膨胀
-10. **低复现问题不许猜**，要证据（截图/日志）
+1. **构建必须在 Windows PowerShell**：Node 18（`D:\NVM\nvm\v18.20.8`）+ 各包 `node_modules/.bin` 进 PATH + `gulp -f ./scripts/build-core.js`
+2. **WSL 里的 `bash` 工具**：不能跑 Windows 程序、无 python、`>nul` 会创建真文件
+3. **响应处理器以字符串形式被 `Function()` 求值** → 正则必须写 `\\s`（双反斜杠），
+   写成 `\s` 会被吃掉变成 `s`（.5 的真实 bug，测试抓到的）
+4. **测试引 `@ocsjs/core` 会取到旧 lib** → 测试里直接引源码路径
+5. 需要 jsdom 的测试用 `tsx --require ./tests/setup-browser-env.cjs` 且 `cwd` 为仓库根
+6. **版本号要改两处**：`scripts/build-core.js`（产物真正取用处）+ `package.json`
+7. PowerShell 传中文用 `-Encoding UTF8`；`git commit -F <文件>`（别用 `-m`）
+8. **已保存的 GM 配置会覆盖默认值** → 改默认值（模型名、随机兜底）后必须让用户**在面板里手动改一次**
 
 ---
 
-## 8. 构建、测试、导出（确切命令，Windows PowerShell）
+## 7. 用户明确要求 / 红线
 
-### 8.1 环境前提
+- **不改倍速、不拖拽、不伪造协议包**；不做人脸/验证码绕过（只检测并停止）
+- **作业/考试**：默认关闭、手动逐次触发、需风险声明、考试单独授权；**含主观题绝不自动提交**
+- **主观题**：显示 + 复制，不自动填、不提交
+- 模型仅 `opencode-go` / `deepseek 官方`；**模型名按提供商不同**（见 §4）
+- 总开关必须存在；面板必须有「测试连接」「清除 Key」；Key 只存 GM 存储
+- **不要在无法验证的情况下反复交付**（面板缩放的惨痛教训 → 见 `PROJECT.md` §10）
 
-- Node：`D:\NVM\nvm\v18.20.8`（**必须 18**）
-- 三个 `.env` 已就绪；依赖用 `pnpm install --node-linker=hoisted`
-- **构建必须在 Windows PowerShell 里跑**（WSL 侧跑 tsx 会因 esbuild/Node 版本不一致失败）
+---
 
-### 8.2 构建（含 4 套测试，全绿才继续）
+## 8. 待办（按优先级，从这里继续）
+
+### P0 · 公式选项残缺 → 自动截图（**用户说有测试样本了，先做这个**）
+
+**问题**：数学/物理题的选项在页面上是 MathJax/图片渲染，OCS 取到的是文本残片；
+即使模型答对，字母与选项的对应关系也可能错乱（实测该场景只剩 34%~50%）。
+
+**计划（需要真实 DOM 证据，不许猜）**：
+1. 用现成探针（`tools/cx_launch.py` + `tools/probe_browser.py` / `cx_observe.py`）打开真实作业页
+2. 抓 **选项区的 DOM 结构**：
+   - 选项容器选择器、每题选项数量
+   - 每个选项的真实文本（`innerText`）与是否有 `<img>` / `<math>` / MathJax 节点
+   - `env.options` 在 resolver 里对应的到底是什么（`work.ts` 里 env 的构造处）
+3. 判定"选项文本不可靠"的**客观特征**（例如：多个选项文本相同/极短/含 `[图片`/含 MathJax 残留），
+   据此触发 `captureElementAsDataUrl` 截图（参考现有 M13 逻辑 `work.ts:585-608`）
+4. 用探针数据做**离线验证**：同样的 10 题，比较"文本路径"与"截图路径"的答案可解析率
+
+**已知的探针入口**：`tools/cx_launch.py`（启动 CDP 浏览器）、`tools/probe_browser.py`、
+`tools/cx_observe.py`、`tools/cx_inspect.py`、`tools/cx_measure.py`
+（**注意：同一时刻只能有一个 CDP 客户端**）
+
+### P0 · 多空填空题格式与 resolver 不兼容
+
+`resolveCompletion` 要求**段数 == 空数**，而 `splitAnswer` 分隔符是
+`['===','#','---','###','|',';','；']`——**不含换行、逗号、顿号**。
+现在提示词要求多空题输出 `第1空：甲\n第2空：乙` → 段数=1 ≠ 空数 → 整题失败（只有单空题能过）。
+
+**可选修法**（择一，需先确认不会破坏"逐空复制"的显示）：
+- 提示词改为用 `；` 分隔（与默认分隔符一致）
+- 或把 `\n` 加入 `answerSeparators`
+- 或在 handler 里把 `第N空：` 格式规范化成 `；` 分隔（显示与填入分离）
+
+> 注意：用户曾说"填空的填入问题不大"，先用真实样本确认多空题的占比再决定。
+
+### P1 · 质量优先提示词（.7）的 A/B 实测
+
+拿到新 Key 后跑：`node tools/math-bench.mjs --garble-options --only A,V2`，
+确认 V2 不劣于 A（预期：正确率持平或更高，代价是延迟与 reasoning token 增加）。
+
+### P1 · 发布 `.8`（线上落后 6 个版本）
+
+`.publish/ocs.user.js` 仍是 `.2`（含 deepseek 官方模型名 bug、无字母输出）。
+发版需用户提供**新的** GitHub token（细粒度、只勾本仓库 Contents、7 天过期），推送后比对 SHA256。
+
+### P2 · 答题缓存的错误答案复用
+
+若开启答题缓存，随机/错误答案会被缓存复用。建议：不缓存"随机兜底"产生的答案（`.8` 后随机已默认关闭，风险下降）。
+
+---
+
+## 9. 有样本后的探针操作（照着做）
 
 ```powershell
-cd E:\Code\ChaoXingStudy\refs\ocsjs
-$R = 'E:\Code\ChaoXingStudy\refs\ocsjs'
-$env:PATH = "D:\NVM\nvm\v18.20.8;$R\node_modules\.bin;$R\packages\core\node_modules\.bin;$R\packages\scripts\node_modules\.bin;$R\packages\utils\node_modules\.bin;" + $env:PATH
-& .\node_modules\.bin\gulp.cmd -f .\scripts\build-core.js
-# 产物：refs\ocsjs\release\ocs.user.js  → 复制到 dist\ocs.user.js
+cd E:\Code\ChaoXingStudy
+python tools\cx_launch.py                       # 启动带 CDP 的浏览器（会停在登录页，你自己登录）
+# 然后按需运行其中一个（示例）：
+python tools\cx_observe.py                       # 观测当前页
+python tools\cx_inspect.py                       # 检查脚本是否注入/面板状态
 ```
 
-测试组成（构建前自动跑）：
-`resolver.test.ts` 164 · `cx-model.handler.test.ts` 31 · `blank-answers.test.ts` 20 · `cx-videoquiz.test.ts` 30
+探针要采集的东西（对应 §8 P0）：
 
-### 8.3 导出补丁
+1. **选项容器与选项元素**：`body` 里每道题的选项区 DOM（class、层级、数量）
+2. **选项文本质量**：`innerText` 是否为空/重复/含 math 残留
+3. **图片/公式节点**：`img`、`math`、`.MathJax`、`svg` 的存在与数量
+4. **resolver 实际拿到的 `env`**：在 `work.ts` 里打点或直接在控制台查看调试日志
 
-```bash
-base=$(cat patches/UPSTREAM_BASE.txt)
-paths=$(git -C refs/ocsjs diff --ignore-cr-at-eol --numstat $base HEAD | awk '$1+0!=0||$2+0!=0 {print $3}' | grep -v '^\.npmrc$' | tr '\n' ' ')
-git -C refs/ocsjs diff --ignore-cr-at-eol --output=/mnt/e/Code/ChaoXingStudy/patches/ocsjs-cxstudy.patch $base HEAD -- $paths
-```
-
-### 8.4 判断"真的有改动"（CRLF 噪音规避）
-
-```bash
-git status --short   # 会显示 ~114 个 M，全是 CRLF 噪音，不可信
-git diff --ignore-cr-at-eol --numstat | awk '$1+0!=0||$2+0!=0'   # 用这个
-```
+> 采集到证据之前，**不要动 `work.ts` 的截图触发条件**（避免重演"面板缩放"那种盲改）。
 
 ---
 
-## 9. 环境陷阱（重复踩过，务必避免）
+## 10. 其它三个项目的状态（同一用户名下）
 
-**工具与环境**
-1. **`bash` 工具 = WSL（Ubuntu, root）**，不是 cmd/Git Bash：无 `cd /d`、无 `>nul`（会建出真文件 `nul`）、**调不动 Windows 程序**（`Exec format error`）。Windows 操作用 `powershell` 工具。
-2. **绝不用 PowerShell 读写中文源码**（GBK 破坏 UTF-8）；`Set-Content -Encoding utf8` 会写 BOM → tsx 报 `Error parsing`。
-   写文件用 Python 算好内容 → 临时文件 → `os.replace`（**不要** `open(p,'wb').write(<表达式>)`）。
-3. **PowerShell 不能传 bash heredoc**（`<<'MSG'` 直接失败）；`git commit -m $msg` 会把裸 `/` 当路径参数 → **用 `-F <文件>`**。
-4. PowerShell `Select-String` **不区分大小写**（曾把注释里的 `[cxstudy` 误判成违规标记）。
-5. **WSL 连不上代理** → 所有 GitHub 操作走 Windows PowerShell。
-6. **同一时刻只能有一个 CDP 客户端**；常驻的日志收集进程会饿死其他 `connect_over_cdp`。
+| 项目 | 路径 | 状态 |
+|---|---|---|
+| SnapAsk | `E:\Code\SnapAsk` | `0.5.1`，MIT，`main` 分支；仅屏幕框选；81 项测试；**未发布**（需配 remote） |
+| Estudy（E会学） | `E:\Code\Estudy` | 油猴 `1.2.7` + Python driver；MIT；**已 git init**；模型名已按提供商修正 |
+| YuketangStudy（雨课堂） | `E:\Code\YuketangStudy` | 立项 + 只读探针已跑通（WS 端点、`/cards/` 路由表）；**只做随堂测验**；未写实现 |
+| DeskAsk（VM 会议监看） | — | **已按要求删除** |
 
-**构建**
-7. **版本号要改两处**：`refs/ocsjs/scripts/build-core.js`（显式写死，**这是产物真正取用的地方**）
-   与 `refs/ocsjs/package.json`。原因：构建流程里 package.json 的 version 不生效，
-   而版本号决定油猴能否识别更新 —— 漏改会导致用户收不到更新。
-8. **测试引 `@ocsjs/core` 会取到上一版 lib**（构建顺序是"先测试、后 tsc"）→ 测试里要**直接引源码路径**。
-9. 测试若引入 `@ocsjs/core` 入口，会碰到 `HTMLElement` → 需 `tsx --require ./tests/setup-browser-env.cjs`，且 `cwd` 为仓库根。
-10. 提示词通过 `${JSON.stringify(SYSTEM_PROMPT)}` 嵌入 handler 源码，换行会被转义 → 安全；
-    **但**手写进模板字符串的 `\n` 会变成真换行，直接让 `Function()` 求值失败 → **所有题全炸**（踩过）。
-
-**取证**
-11. **OCS 面板在 closed shadow root 内** —— JS 读不到它的 DOM，只能靠控制台日志 + 截图。
-    **因此无法实机验证的 UI 特性不要反复盲改**（见 §10）。
-12. 字体解密参照表：`https://cdn.ocsjs.com/resources/font/font_ref_cx.bin`（需 `@connect ocsjs.com`）。
+三者都已完成"**模型名按提供商分开**"的修正：
+`opencode-go → deepseek-v4.1-flash`、`deepseek 官方 → deepseek-flash`。
 
 ---
 
-## 10. 本项目最重要的一次失败（务必读）
+## 11. 变更记录
 
-**面板拖拽缩放：连续 5+ 轮都没做成，最后被用户要求整体删除。**
-
-根因不是技术难度，而是**方法错误**：
-
-- 面板在 **closed shadow root** 内，我**无法用 CDP 检查它的真实 DOM**
-- 我却连续多轮"推断结构 → 改代码 → 让用户安装 → 反馈失败 → 再推断"
-- 用户成了我的测试机，浪费了大量时间；最后一轮交付的还不如不改
-
-**沉淀为规则（写进项目约束）**：
-
-> **无法实机验证的特性，不要用"推断 + 交付"的方式反复迭代。**
-> 应当：① 先取得真实 DOM/日志证据；或 ② 一开始就明确声明"这个我验不了"；
-> 或 ③ 把诊断能力**做进产物**（让脚本自己把结构打印/显示出来），用户一次截图即可定位。
-> 绝不让用户承担我本该自己完成的验证。
-
----
-
-## 11. 凭据与安全
-
-- **曾有一个 GitHub token（`ghp_…`）在对话中明文暴露 → 用户应已撤销或需撤销**。
-  今后推送建议：**细粒度令牌，仅本仓库 `Contents: Read and write`，7 天过期**。
-- 产物安全性已审计：无字面 Key（`Authorization: "Bearer " + key` 是变量引用）、无题号/课程号/Cookie/本地路径/`.env`。
-- 发布时 **MIT 合规**：保留上游版权与许可声明，LICENSE 用标准 MIT 结构（否则 GitHub 报 `NOASSERTION`）。
-
----
-
-## 12. 相关文件索引
-
-| 路径 | 作用 |
-|---|---|
-| `PROJECT.md` | **历史与决策全记录**（§1–§26）；§19 是旧交接章 |
-| `docs/HANDOFF.md` | **本文件**（当前状态与续接方式） |
-| `docs/cx-mechanisms.md` | 学习通机制说明（字体混淆、弹题、任务点等） |
-| `README.md` | 面向用户/开源读者 |
-| `LICENSE` | MIT（上游 + 派生） |
-| `refs/ocsjs/` | fork 源码（改代码在这里） |
-| `patches/ocsjs-cxstudy.patch` | 相对上游的可复现补丁 |
-| `patches/UPSTREAM_BASE.txt` | 上游基线 commit |
-| `dist/ocs.user.js` | 最新本地产物 |
-| `tools/*.py` | 只读探针（浏览器/字体/面板/日志），见 `PROJECT.md` §19.4 |
-| `.logs/` | 构建日志、发布材料（含各版本 SHA256SUMS） |
-| `refs/ocsjs/tests/` | 4 套测试（构建前自动执行） |
-| `cx-helper.user.js` | 早期自研参考实现，**仅参考，不参与构建** |
+- **2026-11（本轮）**：`.2 → .8`；新增 `tools/math-bench*`、`docs/analysis-answer-accuracy.md`；
+  修复模型名、选择题字母输出、填空误伤、提示词质量、随机兜底默认值
+- 更早的历史见 `PROJECT.md` §1–§26
