@@ -106,7 +106,16 @@ $...$         →  去美元符
 
 这与我们既定的"公式纯文本可粘贴"策略一致，也能减少"模型输出 LaTeX → 匹配失败"这一类失败。
 
-### ⭐⭐ 3. `normalizeQuestion` —— 归一化后的缓存 key
+### ❌ 评估后不实现：`normalizeQuestion` 缓存 key 归一化
+
+**理由（稳定性优先）**：
+
+现有缓存是 `localQuestionCaches` 列表 + `cache.title.trim() === title.trim()` 精确比较；
+改成归一化 key 需要**同时改读侧与写侧**，且 `replace(/[^\p{L}\p{N}]/gu,'')` 会把运算符全部抹掉：
+`a+b` 与 `ab`、`x+1=2` 与 `x1=2` 会**撞成同一个 key** → 拿到别的题的答案。
+收益只是命中率略升，风险却是答错整题。
+
+### ⭐⭐ 原评估：`normalizeQuestion` —— 归一化后的缓存 key
 
 ```js
 const normalizeQuestion = (question) =>
@@ -118,7 +127,13 @@ const normalizeQuestion = (question) =>
 我们现在直接用原始题干做缓存 key，同一道题若题干里 [图片N] 编号或 URL 不同，会重复请求模型
 （既费钱也可能拿到不一致的答案）。用这个归一化当 key 更稳。
 
-### ⭐⭐ 4. `flushTabWrites` + `GM_getTab/GM_saveTab` + `beforeunload`
+### ❌ 评估后不实现：多 frame 写缓冲（`flushTabWrites`）
+
+**理由（稳定性优先）**：这是**存储层**改造，影响面覆盖全部配置读写；
+丢写风险目前只是**推断**，没有实测证据（未观察到配置丢失）。
+按「没有证据不做大面积改动」的原则搁置；若日后真的出现配置丢失，再针对性处理。
+
+### ⭐⭐ 原评估：`flushTabWrites` + `GM_getTab/GM_saveTab` + `beforeunload`
 
 ```js
 window.addEventListener("beforeunload", () => this.flushTabWrites());
@@ -169,6 +184,11 @@ flushTabWrites() {
 
 1. ~~`disambiguateBySign`~~ —— **已评估降级**（只输出字母后没有可比文本）
 2. ~~`linearizeLatex`~~ —— **已完成**（`.13`）
-3. **缓存 key 归一化**（省钱 + 避免答案漂移）
-4. **多 frame 写缓冲**（可靠性，超星作业页 5 frame 场景真实存在）
-5. 安全审计表（留档，以后再考虑）
+3. ~~缓存 key 归一化~~ —— **不实现**（碰撞风险 > 收益）
+4. ~~多 frame 写缓冲~~ —— **不实现**（无实测证据，存储层改动风险大）
+5. 安全审计表（留档，不实现）
+
+> 稳定性优先：本轮只做了 `linearizeLatex`（纯函数、零侵入）。
+> 另外补了两项纯稳定性工作：
+> - 截图已触发但「允许图片题」未开启时**显式告警**（这条链路此前是静默失效）
+> - `tests/cx-config-defaults.test.ts`：把 5 条关键默认值钉死，防止后续改动悄悄改回
