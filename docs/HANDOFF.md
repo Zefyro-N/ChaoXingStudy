@@ -303,7 +303,21 @@ $("#answer" + qid).val(choiceContent);
 文本路径对这类题**根本无效**（bodyHead 里 `若方阵满足 ，则的特征值…` 就是公式被丢掉的痕迹）。
 → 必须走**题干+选项整块截图 + 视觉模型**（现有的 `cx-screenshot.ts` 与 M13 截图路径可复用）。
 
-### P0 · 推理开关（用户新要求，2026-11-11）
+### ✅ 已修 · 推理开关（`5.2.1-cxstudy.11` 完成）
+
+面板新增「**模型深度推理（提高正确率，刷课可关）**」，**默认开启**：
+
+| 状态 | 提示词 | 适用 |
+|---|---|---|
+| 开（默认） | `SYSTEM_PROMPT`：先完整推导 + 必须自检 + 禁编造 | 作业/考试/要分数 |
+| 关 | `FAST_PROMPT`：只保留输出格式，末条改为「不确定直接给最可能答案」 | 纯刷课 |
+
+实现：`buildModelAnswererWrappers(provider, key, debug, vision, reasoning)` → `makeMessagesHandler(debug, vision, reasoning)`，按 `reasoning` 选择提示词；**两条路径的输出格式完全一致**（选择题仍只输出字母），不影响 `.9` 的匹配逻辑。
+
+同时：`cxModelVision` 默认值 false → **true**（整题截图依赖它，否则截图白做）。
+测试：`cx-model.handler.test.ts` 新增 10 条断言（两变体的关键差异 + 默认值）。
+
+### P0（历史）· 推理开关（用户新要求，2026-11-11）
 
 面板加一个开关「**模型深度推理**」，**默认开启**：
 

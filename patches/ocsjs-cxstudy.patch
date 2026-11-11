@@ -10,14 +10,14 @@ index 675a8fb..16d156f 100644
 +# 构建产物（本地 gulp 输出，不入库；对应 release/ocs.user.js）
 +release/
 diff --git a/package.json b/package.json
-index a715d35..11c4fb8 100644
+index a715d35..f03f35a 100644
 --- a/package.json
 +++ b/package.json
 @@ -1,6 +1,6 @@
  {
  	"name": "ocsjs",
 -	"version": "5.2.1",
-+	"version": "5.2.1-cxstudy.10",
++	"version": "5.2.1-cxstudy.11",
  	"description": "ocs - online course script 在线网络课程辅助工具",
  	"types": "./lib/src/core/index.d.ts",
  	"main": "./lib/src/core/index.js",
@@ -1539,7 +1539,7 @@ index c9f9c7a..1f7adf3 100644
  					.map((m) => {
  						const url = window.location.href;
 diff --git a/packages/scripts/src/projects/common.ts b/packages/scripts/src/projects/common.ts
-index aadb3d9..9b7ee08 100644
+index aadb3d9..f14e4ed 100644
 --- a/packages/scripts/src/projects/common.ts
 +++ b/packages/scripts/src/projects/common.ts
 @@ -1,4 +1,5 @@
@@ -1679,7 +1679,7 @@ index aadb3d9..9b7ee08 100644
  					defaultValue: [] as AnswererWrapper[]
  				},
  				/**
-@@ -215,576 +180,123 @@ export const CommonProject = Project.create({
+@@ -215,576 +180,135 @@ export const CommonProject = Project.create({
  					defaultValue: [] as string[]
  				},
  
@@ -1798,6 +1798,18 @@ index aadb3d9..9b7ee08 100644
 -								if (awsResult.length > 10) {
 +					defaultValue: false
 +				},
++				// 深度推理：默认开启（作业/考试/要分数）；纯刷课时可关闭以提速
++				cxDeepReasoning: {
++					label: '模型深度推理（提高正确率，刷课可关）',
++					attrs: {
++						type: 'checkbox',
++						title:
++							'开启（默认）：先完整推导 + 必须自检（选择题代回题干、计算题查符号单位、判断题找反例）再给答案，正确率高，响应慢一些。\n' +
++							'关闭：只要求输出格式、直接给答案，适合纯刷课或对分数要求不高的场景，速度快但正确率低。\n' +
++							'两者输出格式完全一致（选择题仍然只输出字母），不影响后续匹配。'
++					},
++					defaultValue: true
++				},
 +				// 图片题：把题干/选项里的图片一并发给（支持识图的）模型
 +				cxModelVision: {
 +					label: '允许图片题（题目图片一起发给模型）',
@@ -1806,7 +1818,7 @@ index aadb3d9..9b7ee08 100644
 +						title:
 +							'开启后：自动抓取题干与选项里的图片，转成 base64 一并发给模型。\n成本：DeepSeek 文档口径为单图最多占 384 tokens，与文本同价。\n适用：题干或选项是图片、纯文字答不出的题。\n本项会自动等效于开启上游的「图片题优化」，无需另外设置。'
 +					},
-+					defaultValue: false
++					defaultValue: true
 +				},
 +				// 截图兜底：文本/图片 URL 都拿不到时，把题目区域渲染成图片
 +				cxScreenshot: {
@@ -1851,10 +1863,7 @@ index aadb3d9..9b7ee08 100644
 -												awsResult.length +
 -												'个题库，请删除一些不必要的题库后重新配置！'
 -										])
-+										title: '⛔ 模型连接失败',
-+										content: $ui.notes([res.message, '请检查 Key 是否正确、是否有该模型权限、网络是否可达。']),
-+										confirmButtonText: '知道了'
- 									});
+-									});
 -									return false;
 -								}
 -
@@ -1863,7 +1872,7 @@ index aadb3d9..9b7ee08 100644
 -								const confirmed = await confirmRiskyAnswerWrappers(awsResult);
 -								if (!confirmed) {
 -									return false;
- 								}
+-								}
 -
 -								// 全局跨域提交改动事件
 -								CommonEvents.emitAnswererChanged(awsResult, CommonProject.scripts.settings.cfg.answererWrappers);
@@ -1890,8 +1899,11 @@ index aadb3d9..9b7ee08 100644
 -													cancelButtonText: '稍后刷新'
 -											  }
 -											: {})
--									});
--								}
++										title: '⛔ 模型连接失败',
++										content: $ui.notes([res.message, '请检查 Key 是否正确、是否有该模型权限、网络是否可达。']),
++										confirmButtonText: '知道了'
+ 									});
+ 								}
 -
 -								// 格式化文本
 -								textarea.value = JSON.stringify(awsResult, null, 4);
@@ -2364,7 +2376,7 @@ index aadb3d9..9b7ee08 100644
  					tag: 'select',
  					defaultValue: 80 as WorkUploadType,
  					options: [
-@@ -824,30 +336,6 @@ export const CommonProject = Project.create({
+@@ -824,30 +348,6 @@ export const CommonProject = Project.create({
  							'当章节测试左上角并没有黄色任务点的时候依然进行答题（没有任务点说明此作业可能不计入总成绩，如果老师要求则可以开启）'
  					}
  				},
@@ -2395,7 +2407,7 @@ index aadb3d9..9b7ee08 100644
  				advancedSettings: {
  					...dropdownStyle,
  					defaultValue: false,
-@@ -857,7 +345,7 @@ export const CommonProject = Project.create({
+@@ -857,7 +357,7 @@ export const CommonProject = Project.create({
  				thread: {
  					showIf: 'common.settings.advancedSettings',
  					elementClassName: 'config-details',
@@ -2404,7 +2416,7 @@ index aadb3d9..9b7ee08 100644
  					attrs: {
  						type: 'number',
  						min: 1,
-@@ -875,16 +363,15 @@ export const CommonProject = Project.create({
+@@ -875,16 +375,15 @@ export const CommonProject = Project.create({
  					attrs: {
  						type: 'checkbox',
  						title:
@@ -2424,7 +2436,7 @@ index aadb3d9..9b7ee08 100644
  					attrs: {
  						type: 'number',
  						min: 10,
-@@ -897,7 +384,7 @@ export const CommonProject = Project.create({
+@@ -897,7 +396,7 @@ export const CommonProject = Project.create({
  				stopSecondWhenFinish: {
  					showIf: 'common.settings.advancedSettings',
  					elementClassName: 'config-details',
@@ -2433,7 +2445,7 @@ index aadb3d9..9b7ee08 100644
  					attrs: {
  						type: 'number',
  						min: 3,
-@@ -910,7 +397,7 @@ export const CommonProject = Project.create({
+@@ -910,7 +409,7 @@ export const CommonProject = Project.create({
  				period: {
  					showIf: 'common.settings.advancedSettings',
  					elementClassName: 'config-details',
@@ -2442,7 +2454,7 @@ index aadb3d9..9b7ee08 100644
  					attrs: {
  						type: 'number',
  						min: 1,
-@@ -973,6 +460,8 @@ export const CommonProject = Project.create({
+@@ -973,6 +472,8 @@ export const CommonProject = Project.create({
  					}
  				},
  				notification: {
@@ -2451,7 +2463,7 @@ index aadb3d9..9b7ee08 100644
  					separator: '其他设置',
  					label: '系统通知',
  					attrs: {
-@@ -996,7 +485,9 @@ export const CommonProject = Project.create({
+@@ -996,7 +497,9 @@ export const CommonProject = Project.create({
  					]
  				},
  				enableQuestionCaches: {
@@ -2462,7 +2474,7 @@ index aadb3d9..9b7ee08 100644
  					defaultValue: true,
  					attrs: { type: 'checkbox' },
  					suffixSlot: function () {
-@@ -1020,8 +511,14 @@ export const CommonProject = Project.create({
+@@ -1020,8 +523,15 @@ export const CommonProject = Project.create({
  						/**
  						 * 过滤掉被禁用的题库
  						 */
@@ -2475,11 +2487,12 @@ index aadb3d9..9b7ee08 100644
 +							(this.cfg as any).cxModelProvider,
 +							(this.cfg as any).cxModelApiKey,
 +							(this.cfg as any).cxModelDebug === true,
-+							(this.cfg as any).cxModelVision === true
++							(this.cfg as any).cxModelVision === true,
++							(this.cfg as any).cxDeepReasoning !== false
  						);
  
  						return workOptions;
-@@ -1092,9 +589,7 @@ export const CommonProject = Project.create({
+@@ -1092,9 +602,7 @@ export const CommonProject = Project.create({
  							content: h('div', [
  								'当前题库配置暂不支持图片、公式等题目处理',
  								h('br'),
@@ -2490,7 +2503,7 @@ index aadb3d9..9b7ee08 100644
  							]),
  							duration: 0,
  							onClose: () => {
-@@ -1121,14 +616,18 @@ export const CommonProject = Project.create({
+@@ -1121,14 +629,18 @@ export const CommonProject = Project.create({
  			namespace: 'common.work-results',
  			configs: {
  				notes: {
@@ -2511,7 +2524,7 @@ index aadb3d9..9b7ee08 100644
  				 * 动态答题器不会自动清空搜索结果，因此需要显示手动清空按钮
  				 */
  				dynamicResults: {
-@@ -1386,7 +885,10 @@ export const CommonProject = Project.create({
+@@ -1386,7 +898,10 @@ export const CommonProject = Project.create({
  									h(SearchInfosElement, {
  										infos: result.searchInfos,
  										question: result.question,
@@ -2523,7 +2536,7 @@ index aadb3d9..9b7ee08 100644
  									})
  								]);
  							} else {
-@@ -1429,115 +931,6 @@ export const CommonProject = Project.create({
+@@ -1429,115 +944,6 @@ export const CommonProject = Project.create({
  			'work-state-change': (state: 'done' | 'start' | 'stop' | 'close') => void;
  			'work-current-result-change': (cur: SimplifyWorkResult) => void;
  		}>(),
@@ -2639,7 +2652,7 @@ index aadb3d9..9b7ee08 100644
  		edgeMinimize: new Script({
  			name: '边缘最小化图标模式',
  			matches: [['所有页面', /.*/]],
-@@ -1604,112 +997,6 @@ function insertCopyableStyle() {
+@@ -1604,112 +1010,6 @@ function insertCopyableStyle() {
  	document.head.append(style);
  }
  
@@ -2752,7 +2765,7 @@ index aadb3d9..9b7ee08 100644
  
  /** 按题型区分"答案无法作答"的提示文案 */
  const typeMismatchTexts: Record<string, string> = {
-@@ -1725,22 +1012,12 @@ function createSearchResultAlertElement(result: SimplifyWorkResult) {
+@@ -1725,22 +1025,12 @@ function createSearchResultAlertElement(result: SimplifyWorkResult) {
  	if (result.requested === false && result.resolved === false) {
  		info = h('div', { className: 'result-info unresolved' }, '等待搜索中... 🔍');
  	} else if (err) {
@@ -11562,10 +11575,10 @@ index 693e800..2e94735 100644
  };
 diff --git a/packages/scripts/src/utils/cx-model.ts b/packages/scripts/src/utils/cx-model.ts
 new file mode 100644
-index 0000000..8af7aac
+index 0000000..f4fdd6f
 --- /dev/null
 +++ b/packages/scripts/src/utils/cx-model.ts
-@@ -0,0 +1,393 @@
+@@ -0,0 +1,416 @@
 +/**
 + * 本项目锁定的模型答题器。
 + *
@@ -11664,6 +11677,28 @@ index 0000000..8af7aac
 +].join('\n');
 +
 +/**
++ * 精简提示词（「深度推理」关闭时使用）。
++ *
++ * 目的：纯刷课、对分数要求不高的场景，牺牲正确率换速度与 token。
++ * 只保留输出格式约束，去掉"先推导 / 必须自检 / 信息不足选最自洽"这些质量要求。
++ */
++const FAST_PROMPT = [
++	'你是答题助手，为在线课程测验作答。直接给出最终答案。',
++	'',
++	'输出格式（严格遵守）：',
++	'1. 单选题：只输出一个字母（A/B/C/D），不要输出选项文字。',
++	'2. 多选题：只输出选项字母，按字母顺序、用英文逗号分隔，例如 A,C。',
++	'3. 判断题：只输出「正确」或「错误」，不要加句号。',
++	'4. 填空题：只输出答案文本。',
++	'5. 多空题：按空逐个换行，每行写成「第N空：答案」，编号从 1 连续。\n第1空：单精度型\n第2空：双精度型',
++	'6. 主观题：给出可直接粘贴的完整答案，用 1. 2. 3. 分点。',
++	'7. 题干或选项中的图片写成 [图片N] 占位符，图片按 N 的顺序附在消息末尾。',
++	'8. 数学一律纯文本（x^2、a_n、α、∫ ∑ √ ≤ ≥），禁止 LaTeX。',
++	'9. 不要输出任何前缀（答案：／选／故）、解释、题号、引号。',
++	'10. 不确定时直接给出你认为最可能的答案，不要提问、不要要求补充信息。'
++].join('\n');
++
++/**
 + * 生成 `data.messages` 的字段解析器源码。
 + *
 + * OCS 允许 `data` 的每个字段是一个 `{ handler: '<字符串>' }`，该字符串会被
@@ -11673,7 +11708,7 @@ index 0000000..8af7aac
 + * @param debug  打开后会把实际发出的 prompt 打到控制台（base64 已截断，避免刷爆控制台）
 + * @param vision 打开后把 `env.images` 作为 image_url 内容块一并发送
 + */
-+function makeMessagesHandler(debug: boolean, vision: boolean): string {
++function makeMessagesHandler(debug: boolean, vision: boolean, reasoning = true): string {
 +	return `return function (env) {
 +	var DEBUG = ${debug ? 'true' : 'false'};
 +	var VISION = ${vision ? 'true' : 'false'};
@@ -11719,7 +11754,7 @@ index 0000000..8af7aac
 +		content = userText;
 +	}
 +	var msgs = [
-+		{ role: 'system', content: ${JSON.stringify(SYSTEM_PROMPT)} },
++		{ role: 'system', content: ${JSON.stringify(reasoning ? SYSTEM_PROMPT : FAST_PROMPT)} },
 +		{ role: 'user', content: content }
 +	];
 +	if (DEBUG) {
@@ -11732,7 +11767,7 @@ index 0000000..8af7aac
 +		// 降级为纯文本 prompt（文字题仍可作答），并留下可排查的日志。
 +		console.warn('[CXStudy] 构造 prompt 失败，已降级为纯文本: ' + (e && e.message ? e.message : e));
 +		return [
-+			{ role: 'system', content: ${JSON.stringify(SYSTEM_PROMPT)} },
++			{ role: 'system', content: ${JSON.stringify(reasoning ? SYSTEM_PROMPT : FAST_PROMPT)} },
 +			{ role: 'user', content: '题型：题目\\n题干：' + String(env.title || '') + '\\n\\n答案：' }
 +		];
 +	}
@@ -11838,7 +11873,8 @@ index 0000000..8af7aac
 +	provider: string,
 +	apiKey: string,
 +	debug = false,
-+	vision = false
++	vision = false,
++	reasoning = true
 +): AnswererWrapper[] {
 +	const key = String(apiKey || '').trim();
 +	if (!key) return [];
@@ -11863,7 +11899,7 @@ index 0000000..8af7aac
 +			) as Record<string, string>,
 +			data: {
 +				model: p.model,
-+				messages: { handler: makeMessagesHandler(debug, vision) },
++				messages: { handler: makeMessagesHandler(debug, vision, reasoning) },
 +				// 4096 不够：实测思考模型（v4.1-flash 会输出 reasoning_content）
 +				// 会把额度烧在推理上，出现 "finish_reason":"length" 且 content 为空，
 +				// 只能从 reasoning 尾部猜字母。4 道题里发生了 1 次。
@@ -13144,7 +13180,7 @@ index 74b7d18..0000000
 -	readNotes
 -};
 diff --git a/scripts/build-core.js b/scripts/build-core.js
-index 2d2f0e9..9b19b56 100644
+index 2d2f0e9..a57ec85 100644
 --- a/scripts/build-core.js
 +++ b/scripts/build-core.js
 @@ -6,7 +6,7 @@ const util = require('util');
@@ -13232,7 +13268,7 @@ index 2d2f0e9..9b19b56 100644
 +				name: 'CXStudy 超星助手',
 +				// 版本号显式写出：package.json 的 version 在本构建流程里没有生效（产物仍是旧版本号），
 +				// 而版本号决定油猴能否识别更新，必须准确。发版时递增此处与 package.json。
-+				version: '5.2.1-cxstudy.10',
++				version: '5.2.1-cxstudy.11',
 +				description:
 +					'超星学习通专用助手：以真实速率推进视频/音频/文档任务点，章节测验自动作答（支持图片题）。' +
 +					'基于 MIT 协议的 OCS 网课助手（https://github.com/ocsjs/ocsjs）衍生，仅保留超星学习通平台。',
@@ -13456,10 +13492,10 @@ index 0000000..1f0dd24
 +}
 diff --git a/tests/cx-model.handler.test.ts b/tests/cx-model.handler.test.ts
 new file mode 100644
-index 0000000..d938364
+index 0000000..b010bbb
 --- /dev/null
 +++ b/tests/cx-model.handler.test.ts
-@@ -0,0 +1,308 @@
+@@ -0,0 +1,333 @@
 +/**
 + * 模型 prompt 构造器测试
 + *
@@ -13751,6 +13787,31 @@ index 0000000..d938364
 +	ok('说明文案写明默认关闭', cxSrc.includes('默认关闭（推荐）'));
 +	ok('说明文案提示留空可能影响提交', cxSrc.includes('无法提交'));
 +	ok('关闭后会跳过该题（不是静默失败）', cxSrc.includes('已关闭随机兜底，跳过该题'));
++}
++
++// ============ 深度推理开关（两个提示词变体）============
++console.log('\n[深度推理开关]');
++{
++	const { buildModelAnswererWrappers } = require('../packages/scripts/src/utils/cx-model');
++	const wrapOf = (reasoning: boolean) =>
++		(buildModelAnswererWrappers('deepseek', 'sk-test', false, true, reasoning)[0] as any).data.messages
++			.handler as string;
++	const quality = wrapOf(true);
++	const fast = wrapOf(false);
++
++	ok('quality 提示词含「先完整推导」', quality.includes('先完整推导'));
++	ok('quality 提示词含「必须自检」', quality.includes('必须自检'));
++	ok('quality 提示词禁止编造', quality.includes('禁止编造'));
++	ok('fast 提示词不含推导要求', !fast.includes('先完整推导'));
++	ok('fast 提示词不含自检要求', !fast.includes('必须自检'));
++	ok('fast 提示词仍要求只输出字母', fast.includes('只输出一个字母'));
++	ok('fast 提示词仍禁止 LaTeX', fast.includes('禁止 LaTeX'));
++	ok('fast 提示词仍规定多空格式', fast.includes('第N空：答案'));
++	ok('两个变体都不是空串', quality.length > 200 && fast.length > 100);
++	ok('默认参数为深度推理（未显式传参时带推导要求）', (() => {
++		const w = (buildModelAnswererWrappers('deepseek', 'sk-test', false, true)[0] as any).data.messages.handler as string;
++		return w.includes('先完整推导');
++	})());
 +}
 +
 +console.log(
