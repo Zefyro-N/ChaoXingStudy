@@ -10,14 +10,14 @@ index 675a8fb..16d156f 100644
 +# 构建产物（本地 gulp 输出，不入库；对应 release/ocs.user.js）
 +release/
 diff --git a/package.json b/package.json
-index a715d35..c7d937b 100644
+index a715d35..f1a682b 100644
 --- a/package.json
 +++ b/package.json
 @@ -1,6 +1,6 @@
  {
  	"name": "ocsjs",
 -	"version": "5.2.1",
-+	"version": "5.2.1-cxstudy.13",
++	"version": "5.2.1-cxstudy.14",
  	"description": "ocs - online course script 在线网络课程辅助工具",
  	"types": "./lib/src/core/index.d.ts",
  	"main": "./lib/src/core/index.js",
@@ -13058,7 +13058,7 @@ index f62ee3a..5a64aa5 100644
  /** 加载中旋转图标（旋转动画由 custom.less 的 .aw-spin 控制） */
  export const loadingSpinSvg = `<svg class="aw-spin" width="14" height="14" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="28" stroke-dashoffset="10" stroke-linecap="round"/></svg>`;
 diff --git a/packages/scripts/src/utils/work.ts b/packages/scripts/src/utils/work.ts
-index fce71af..da03321 100644
+index fce71af..3d7a7f0 100644
 --- a/packages/scripts/src/utils/work.ts
 +++ b/packages/scripts/src/utils/work.ts
 @@ -8,11 +8,17 @@ import {
@@ -13155,7 +13155,16 @@ index fce71af..da03321 100644
  		question,
  		finish: wr.result?.finish,
  		searchInfos:
-@@ -533,12 +546,16 @@ export function createCommonAnswerer(options: {
+@@ -514,6 +527,8 @@ export function createCommonAnswerer(options: {
+ 	/** 降级提示仅每次会话提示一次，避免逐题刷屏 */
+ 	let imageOptimizeOffWarned = false;
+ 	let imageConvertFailWarned = false;
++	/** 截图已触发但「允许图片题」未开启：只告警一次，避免逐题刷屏 */
++	let screenshotVisionWarned = false;
+ 
+ 	return async (elements: any, ctx: WorkContext<any>): Promise<SearchInformation[]> => {
+ 		const titleResult = normalize(options.titleTransform(elements, ctx));
+@@ -533,12 +548,16 @@ export function createCommonAnswerer(options: {
  							.map((o: HTMLElement | undefined) => o!.innerText)
  							.join('\n')
  			);
@@ -13173,7 +13182,7 @@ index fce71af..da03321 100644
  				imageOptimizeOffWarned = true;
  				$message.warn({
  					content: '检测到题目包含图片，但未开启「图片题优化」（通用-全局设置-高级设置中开启），图片题将无法搜题。',
-@@ -551,12 +568,12 @@ export function createCommonAnswerer(options: {
+@@ -551,12 +570,12 @@ export function createCommonAnswerer(options: {
  				options: optResult.text,
  				titleImages,
  				optionsImages: optResult.images,
@@ -13188,7 +13197,7 @@ index fce71af..da03321 100644
  				imageUrls.length === 0 &&
  				!imageConvertFailWarned
  			) {
-@@ -566,6 +583,27 @@ export function createCommonAnswerer(options: {
+@@ -566,6 +585,41 @@ export function createCommonAnswerer(options: {
  					duration: 10
  				});
  			}
@@ -13203,6 +13212,20 @@ index fce71af..da03321 100644
 +					questionHasImages
 +				});
 +				if (decision.need) {
++					// 截图是否能真正送达模型取决于「允许图片题」（cxModelVision）：
++					// cx-model 里 hasShot = !!(VISION && env.screenshot)。
++					// 关闭时截图会白做且用户无从得知，这里显式告警一次。
++					const visionOn = !!(
++						CommonProject.scripts.settings.cfg.imageOptimize ||
++						(CommonProject.scripts.settings.cfg as any).cxModelVision
++					);
++					if (!visionOn && !screenshotVisionWarned) {
++						screenshotVisionWarned = true;
++						$console.warn(
++							'[CXStudy] 已触发整题截图，但「允许图片题」未开启 → 截图不会发给模型。' +
++								'请在 通用-全局设置 中开启「允许图片题」。'
++						);
++					}
 +					$console.log('[CXStudy] 触发截图兜底（' + decision.reason + '）');
 +					const shot = await captureElementAsDataUrl(ctx.root, imageToBase64);
 +					if (shot) {
@@ -13216,7 +13239,7 @@ index fce71af..da03321 100644
  			const searchInfos = await defaultAnswerWrapperHandler(options.answererWrappers, env);
  			// 将 AI 答案中的 [图片N] 占位符还原为对应图片 URL，使选项匹配可以命中图片选项。
  			// imageUrls 与实际上传的 env.images 严格同序（createImageSuggestion 单一数据源，含转换失败过滤）。
-@@ -579,6 +617,15 @@ export function createCommonAnswerer(options: {
+@@ -579,6 +633,15 @@ export function createCommonAnswerer(options: {
  					}
  				}
  			}
@@ -13382,7 +13405,7 @@ index 74b7d18..0000000
 -	readNotes
 -};
 diff --git a/scripts/build-core.js b/scripts/build-core.js
-index 2d2f0e9..4672505 100644
+index 2d2f0e9..42dfea6 100644
 --- a/scripts/build-core.js
 +++ b/scripts/build-core.js
 @@ -6,7 +6,7 @@ const util = require('util');
@@ -13394,7 +13417,7 @@ index 2d2f0e9..4672505 100644
  const path = require('path');
  const dotenv = require('dotenv');
  const fs = require('fs');
-@@ -24,6 +24,27 @@ function cleanOutput() {
+@@ -24,6 +24,29 @@ function cleanOutput() {
  
  async function testResolver() {
  	await execOut('tsx ../tests/resolver.test.ts');
@@ -13406,6 +13429,8 @@ index 2d2f0e9..4672505 100644
 +	await execOut('tsx ../tests/blank-format.test.ts');
 +	// LaTeX 线性化（保证公式纯文本可粘贴）
 +	await execOut('tsx ../tests/latex-linearize.test.ts');
++	// 配置默认值回归（每条默认值都是踩坑定的）
++	await execOut('tsx ../tests/cx-config-defaults.test.ts');
 +	// handler 是以字符串形式存在的运行期源码（由 Function() 求值），
 +	// tsc 查不出其中的引用错误，因此构建前必须真实求值并调用一遍。
 +	await execOut('tsx ../tests/cx-model.handler.test.ts');
@@ -13422,7 +13447,7 @@ index 2d2f0e9..4672505 100644
  }
  
  async function buildPackages() {
-@@ -48,18 +69,30 @@ async function createUserJs() {
+@@ -48,18 +71,30 @@ async function createUserJs() {
  	// @ts-ignore
  	const ocs = require(path.join(distPath, 'index.js'));
  
@@ -13459,7 +13484,7 @@ index 2d2f0e9..4672505 100644
  					.flat()
  			)
  		);
-@@ -76,23 +109,31 @@ async function createUserJs() {
+@@ -76,23 +111,31 @@ async function createUserJs() {
  				gap: '\t'.repeat(4)
  			},
  			metadata: {
@@ -13474,7 +13499,7 @@ index 2d2f0e9..4672505 100644
 +				name: 'CXStudy 超星助手',
 +				// 版本号显式写出：package.json 的 version 在本构建流程里没有生效（产物仍是旧版本号），
 +				// 而版本号决定油猴能否识别更新，必须准确。发版时递增此处与 package.json。
-+				version: '5.2.1-cxstudy.13',
++				version: '5.2.1-cxstudy.14',
 +				description:
 +					'超星学习通专用助手：以真实速率推进视频/音频/文档任务点，章节测验自动作答（支持图片题）。' +
 +					'基于 MIT 协议的 OCS 网课助手（https://github.com/ocsjs/ocsjs）衍生，仅保留超星学习通平台。',
@@ -13506,7 +13531,7 @@ index 2d2f0e9..4672505 100644
  				match: matchMetadata,
  				grant: [
  					'GM_info',
-@@ -106,13 +147,13 @@ async function createUserJs() {
+@@ -106,13 +149,13 @@ async function createUserJs() {
  					'GM_notification',
  					'GM_xmlhttpRequest',
  					'GM_getResourceText',
@@ -13522,7 +13547,7 @@ index 2d2f0e9..4672505 100644
  			},
  			entry: path.join(__dirname, '../packages/scripts/entry.js'),
  			dist: path.join(__dirname, distPath, 'ocs.user.js')
-@@ -122,8 +163,20 @@ async function createUserJs() {
+@@ -122,8 +165,20 @@ async function createUserJs() {
  	const officialOpts = createOptions();
  	console.log('CreateUserScript: ', officialOpts.metadata.name, officialOpts.dist);
  	await createUserScript(officialOpts);
@@ -13545,7 +13570,7 @@ index 2d2f0e9..4672505 100644
  
  	/** 创建调试脚本 */
  	const devOpts = createOptions();
-@@ -141,18 +194,6 @@ async function createUserJs() {
+@@ -141,18 +196,6 @@ async function createUserJs() {
  	);
  	console.log('createUserScript: ', devOpts.metadata.name, devOpts.dist);
  	await createUserScript(devOpts);
@@ -13767,6 +13792,87 @@ index 0000000..7003c28
 +// 多个答案组时，取第一个可用的
 +const rMulti = resolveCompletion([['第1空：错'], [three]], 3);
 +ok('多组答案 → 取可用的那组', rMulti.finish && rMulti.answers?.[0] === '甲', rMulti);
++
++console.log('\n' + (fail === 0 ? '✅ ' : '❌ ') + `${pass} 通过   ❌ ${fail} 失败   共 ${pass + fail} 项\n`);
++if (fail > 0) process.exit(1);
+diff --git a/tests/cx-config-defaults.test.ts b/tests/cx-config-defaults.test.ts
+new file mode 100644
+index 0000000..56f732d
+--- /dev/null
++++ b/tests/cx-config-defaults.test.ts
+@@ -0,0 +1,75 @@
++/**
++ * SPDX-FileCopyrightText: 2026 Zefyro-N
++ * SPDX-License-Identifier: MIT
++ *
++ * 配置默认值回归测试。
++ *
++ * 目的：这些默认值每一条都是踩过坑才定下来的，任何一条被无意改回
++ * 都会让功能静默失效或产生错误结果（见 docs/HANDOFF.md §4）。
++ * 这里从**源码**直接断言，防止后续改动悄悄改回。
++ */
++import * as fs from 'fs';
++import * as path from 'path';
++
++let pass = 0;
++let fail = 0;
++function ok(name: string, cond: boolean, detail?: unknown) {
++	if (cond) {
++		pass++;
++		console.log('    ✅ ' + name);
++	} else {
++		fail++;
++		console.log('    ❌ ' + name + (detail === undefined ? '' : '  → ' + String(detail)));
++	}
++}
++
++const root = path.join(__dirname, '..');
++const cxSrc = fs.readFileSync(path.join(root, 'packages/scripts/src/projects/cx.ts'), 'utf8');
++const commonSrc = fs.readFileSync(path.join(root, 'packages/scripts/src/projects/common.ts'), 'utf8');
++
++/** 取某个配置项的 defaultValue */
++function defaultOf(src: string, key: string): string | null {
++	const i = src.indexOf(key + ': {');
++	if (i === -1) return null;
++	const tail = src.slice(i, i + 2500);
++	const m = tail.match(/defaultValue:\s*(true|false|'[^']*'|\d+)/);
++	return m ? m[1] : null;
++}
++
++console.log('\n[超星项目配置默认值]');
++
++ok('总开关默认开启', defaultOf(commonSrc, 'cxMasterSwitch') === 'true', defaultOf(commonSrc, 'cxMasterSwitch'));
++ok(
++	'随机兜底默认关闭（宁可留空也不填必然错的答案）',
++	defaultOf(cxSrc, 'cxRandomFallback') === 'false',
++	defaultOf(cxSrc, 'cxRandomFallback')
++);
++
++console.log('\n[模型/图片配置默认值]');
++
++ok(
++	'允许图片题默认开启（整题截图依赖它，否则截图不生效）',
++	defaultOf(commonSrc, 'cxModelVision') === 'true',
++	defaultOf(commonSrc, 'cxModelVision')
++);
++ok(
++	'整题截图默认开启（真实作业 17/18 题信息只在图片里）',
++	defaultOf(commonSrc, 'cxScreenshot') === 'true',
++	defaultOf(commonSrc, 'cxScreenshot')
++);
++ok(
++	'深度推理默认开启（正确率优先）',
++	defaultOf(commonSrc, 'cxDeepReasoning') === 'true',
++	defaultOf(commonSrc, 'cxDeepReasoning')
++);
++
++console.log('\n[答题约束：不能自动提交主观题]');
++{
++	const { CommonProject } = {} as any;
++	// 主观题的自动填写/提交必须仍由配置控制，默认不让作业/考试自动提交
++	const autoSubmitJob = defaultOf(cxSrc, 'autoSubmit');
++	ok('作业/考试自动提交配置存在且默认为 false', autoSubmitJob === null || autoSubmitJob === 'false', autoSubmitJob);
++}
 +
 +console.log('\n' + (fail === 0 ? '✅ ' : '❌ ') + `${pass} 通过   ❌ ${fail} 失败   共 ${pass + fail} 项\n`);
 +if (fail > 0) process.exit(1);
