@@ -10,14 +10,14 @@ index 675a8fb..16d156f 100644
 +# 构建产物（本地 gulp 输出，不入库；对应 release/ocs.user.js）
 +release/
 diff --git a/package.json b/package.json
-index a715d35..a9982a8 100644
+index a715d35..85fa47f 100644
 --- a/package.json
 +++ b/package.json
 @@ -1,6 +1,6 @@
  {
  	"name": "ocsjs",
 -	"version": "5.2.1",
-+	"version": "5.2.1-cxstudy.7",
++	"version": "5.2.1-cxstudy.8",
  	"description": "ocs - online course script 在线网络课程辅助工具",
  	"types": "./lib/src/core/index.d.ts",
  	"main": "./lib/src/core/index.js",
@@ -2663,7 +2663,7 @@ index aadb3d9..a38e0a8 100644
  		info = h('div', { className: 'result-info no-answer' }, '❌ 题库没搜索到答案');
  	} else {
 diff --git a/packages/scripts/src/projects/cx.ts b/packages/scripts/src/projects/cx.ts
-index da82b2b..b615cd5 100644
+index da82b2b..5400340 100644
 --- a/packages/scripts/src/projects/cx.ts
 +++ b/packages/scripts/src/projects/cx.ts
 @@ -9,13 +9,20 @@ import {
@@ -2837,7 +2837,7 @@ index da82b2b..b615cd5 100644
  				notifyWhenHasFaceRecognition: {
  					elementClassName: 'config-details',
  					showIf: 'cx.new.study.enables',
-@@ -343,6 +362,19 @@ export const CXProject = Project.create({
+@@ -343,6 +362,22 @@ export const CXProject = Project.create({
  					attrs: { type: 'checkbox', title: '开启：章节测试自动答题' },
  					defaultValue: true
  				},
@@ -2848,16 +2848,19 @@ index da82b2b..b615cd5 100644
 +					attrs: {
 +						type: 'checkbox',
 +						title:
-+							'模型搜不到答案时的兜底：选择题随机选一项，填空题随机填入一个占位文案。\n' +
-+							'作用：避免因存在未作答题目导致整份测验无法提交。\n' +
-+							'代价：该题基本必然判错，并且会写进真实成绩。'
++							'模型答不出时，是否随机填一个答案。\n\n' +
++							'默认关闭（推荐）：宁可该题留空，也不填一个几乎必错的答案。\n' +
++							'开启后：选择题随机选一项、填空题随机填入占位文案；该题基本必然判错，且会写进真实成绩。\n\n' +
++							'注意：若整份测验要求每题必答，留空可能导致无法提交。'
 +					},
-+					defaultValue: true
++					// 默认关闭：随机答案几乎必然判错，且会被写进真实成绩；
++					// 宁可留空（用户可自行去补），也不要产生"看着已作答其实是错的"结果。
++					defaultValue: false
 +				},
  				enableHyperlink: {
  					elementClassName: 'config-details',
  					showIf: 'cx.new.study.enables',
-@@ -352,23 +384,16 @@ export const CXProject = Project.create({
+@@ -352,23 +387,16 @@ export const CXProject = Project.create({
  				}
  			},
  			onrender({ panel }) {
@@ -2888,7 +2891,7 @@ index da82b2b..b615cd5 100644
  			},
  			// 这里不使用 oncompelete ，如果某个资源一直在加载中，就会导致 oncomplete 一直无法触发，导致脚本无法运行，所以改为 onactive 只要匹配上就会触发
  			async onactive() {
-@@ -429,19 +454,15 @@ export const CXProject = Project.create({
+@@ -429,19 +457,15 @@ export const CXProject = Project.create({
  						// @ts-ignore
  						if (top.currentMedia) {
  							// @ts-ignore 倍速设置
@@ -2910,7 +2913,7 @@ index da82b2b..b615cd5 100644
  				}
  			}
  		}),
-@@ -455,11 +476,18 @@ export const CXProject = Project.create({
+@@ -455,11 +479,18 @@ export const CXProject = Project.create({
  			namespace: 'cx.new.work',
  			configs: { notes: workNotes },
  			async oncomplete() {
@@ -2929,7 +2932,7 @@ index da82b2b..b615cd5 100644
  				commonWork({
  					mount_script: this,
  					workerProvider: (opts) => workOrExam(isExam ? 'exam' : 'work', { ...opts, preview_mode: true })
-@@ -511,6 +539,11 @@ export const CXProject = Project.create({
+@@ -511,6 +542,11 @@ export const CXProject = Project.create({
  				}
  			},
  			oncomplete() {
@@ -2941,7 +2944,7 @@ index da82b2b..b615cd5 100644
  				// 置顶
  				BackgroundProject.scripts.render.methods.pin(this);
  				$message.info('请手动点击任意章节开始自动阅读');
-@@ -592,7 +625,7 @@ export const CXProject = Project.create({
+@@ -592,7 +628,7 @@ export const CXProject = Project.create({
  				if (top === window) {
  					$message.warn({
  						content:
@@ -2950,7 +2953,7 @@ index da82b2b..b615cd5 100644
  						duration: 0
  					});
  					// 跳转到最新版本的超星
-@@ -647,6 +680,7 @@ export const CXProject = Project.create({
+@@ -647,6 +683,7 @@ export const CXProject = Project.create({
  						duration: 0
  					});
  					const isExam = /\/exam\/test/.test(location.href);
@@ -2958,7 +2961,7 @@ index da82b2b..b615cd5 100644
  					const workOptions = CommonProject.scripts.settings.methods.getWorkOptions();
  					BackgroundProject.scripts.render.methods.pin(this);
  					commonWork({
-@@ -661,83 +695,17 @@ export const CXProject = Project.create({
+@@ -661,83 +698,17 @@ export const CXProject = Project.create({
  				setTimeout(() => $gm.unsafeWindow.topreview(), 3000);
  			}
  		}),
@@ -3047,7 +3050,7 @@ index da82b2b..b615cd5 100644
  				let chapters = await CXAnalyses.waitForChapterInfos();
  
  				const params = new URLSearchParams(window.location.href);
-@@ -782,7 +750,9 @@ export const CXProject = Project.create({
+@@ -782,7 +753,9 @@ export const CXProject = Project.create({
  				['作业', '/mooc2/work/dowork']
  			],
  			async oncomplete() {
@@ -3058,7 +3061,7 @@ index da82b2b..b615cd5 100644
  			}
  		}),
  		// 积分课提示
-@@ -886,6 +856,8 @@ function workOrExam(
+@@ -886,6 +859,8 @@ function workOrExam(
  						  ].join(','),
  					root
  				).filter((e) => !!e.textContent?.trim()),
@@ -3067,7 +3070,7 @@ index da82b2b..b615cd5 100644
  			options: '.answerBg .answer_p, .textDIV, .eidtDiv',
  			type: type === 'exam' ? 'input[name^="type"]' : 'input[id^="answertype"]',
  			lineAnswerInput: '.line_answer input[name^=answer]',
-@@ -1184,6 +1156,56 @@ function mobilelearn(opts: CommonWorkOptions) {
+@@ -1184,6 +1159,56 @@ function mobilelearn(opts: CommonWorkOptions) {
   * @see 算法详解见 utils/font-decrypt/bitmap.ts 文件头注释
   * @see 参考 https://bbs.tampermonkey.net.cn/thread-2303-1-1.html
   */
@@ -3124,7 +3127,7 @@ index da82b2b..b615cd5 100644
  async function mappingRecognize(doc: Document = document) {
  	// 从 @font-face 的 data URI 中提取加密字体
  	const fontBuffer = extractFontFromStyle(doc, 'font-cxsecret');
-@@ -1332,93 +1354,6 @@ const CXAnalyses = {
+@@ -1332,93 +1357,6 @@ const CXAnalyses = {
  	}
  };
  
@@ -3218,7 +3221,7 @@ index da82b2b..b615cd5 100644
  
  /**
   * cx 任务学习
-@@ -1444,6 +1379,11 @@ export async function study(opts: typeof CXProject.scripts.study.cfg) {
+@@ -1444,6 +1382,11 @@ export async function study(opts: typeof CXProject.scripts.study.cfg) {
  	 * 如果10秒内既没有任务点，也暂停了搜索，则当前则没有任务点
  	 */
  	const runJobs = async () => {
@@ -3230,7 +3233,7 @@ index da82b2b..b615cd5 100644
  		const job = searchJob(opts, searchedJobs);
  		// 如果存在任务点
  		if (job && job.func) {
-@@ -1685,7 +1625,9 @@ function searchJob(opts: typeof CXProject.scripts.study.cfg, searchedJobs: Job[]
+@@ -1685,7 +1628,9 @@ function searchJob(opts: typeof CXProject.scripts.study.cfg, searchedJobs: Job[]
  									}播放 : ` + jobName;
  								$message.info({ content: msg });
  								$console.log(msg);
@@ -3241,7 +3244,7 @@ index da82b2b..b615cd5 100644
  							};
  						}
  					}
-@@ -1804,19 +1746,137 @@ export function fixedVideoProgress() {
+@@ -1804,19 +1749,137 @@ export function fixedVideoProgress() {
  /**
   * 任务点运行器
   */
@@ -3382,7 +3385,7 @@ index da82b2b..b615cd5 100644
  
  		const media = await waitForMedia({ root: doc });
  
-@@ -1835,32 +1895,54 @@ const JobRunner = {
+@@ -1835,32 +1898,54 @@ const JobRunner = {
  		// 固定视频进度
  		fixedVideoProgress();
  
@@ -3458,7 +3461,7 @@ index da82b2b..b615cd5 100644
  		}
  
  		/**
-@@ -1904,8 +1986,8 @@ const JobRunner = {
+@@ -1904,8 +1989,8 @@ const JobRunner = {
  			$console.log('视频开始播放');
  			media.volume = volume;
  
@@ -3469,7 +3472,7 @@ index da82b2b..b615cd5 100644
  
  			// 使用 setTimeout 解决 The play() request was interrupted by a call to pause() 问题
  			setTimeout(() => {
-@@ -1921,8 +2003,33 @@ const JobRunner = {
+@@ -1921,8 +2006,33 @@ const JobRunner = {
  	 * 阅读，PPT
  	 */
  	async read(win: Window & { finishJob?: Function }) {
@@ -3505,7 +3508,7 @@ index da82b2b..b615cd5 100644
  		await $.sleep(3000);
  	},
  	/**
-@@ -1960,6 +2067,16 @@ const JobRunner = {
+@@ -1960,6 +2070,16 @@ const JobRunner = {
  			return answerWrapperEmptyWarning(0);
  		}
  
@@ -3522,7 +3525,7 @@ index da82b2b..b615cd5 100644
  		// 章节测试未使用 commonWork，这里手动触发状态更新
  		CommonEvents.emitWorkerStateChange('start');
  
-@@ -2016,13 +2133,17 @@ const JobRunner = {
+@@ -2016,13 +2136,17 @@ const JobRunner = {
  					(root) => $el('.secondUlList', root)
  				],
  				/**
@@ -3545,7 +3548,7 @@ index da82b2b..b615cd5 100644
  				type: 'input[id^="answertype"]',
  				lineSelectBox: '.thirdUlList .dept_select'
  			},
-@@ -2030,7 +2151,14 @@ const JobRunner = {
+@@ -2030,7 +2154,14 @@ const JobRunner = {
  			answerSeparators: answerSeparators.split(',').map((s) => s.trim()),
  			/** 默认搜题方法构造器 */
  			answerer: createCommonAnswerer({
@@ -3561,7 +3564,7 @@ index da82b2b..b615cd5 100644
  				optionsTransform: (elements, ctx) => {
  					const typeInput = elements.type?.[0] as HTMLInputElement;
  					const type = (typeInput ? getQuestionType(parseInt(typeInput.value)) : undefined) || 'unknown';
-@@ -2064,14 +2192,19 @@ const JobRunner = {
+@@ -2064,14 +2195,19 @@ const JobRunner = {
  								option?.click();
  							}
  						} else if (type === 'completion' && answer.trim()) {
@@ -3581,7 +3584,7 @@ index da82b2b..b615cd5 100644
  							if (option?.parentElement?.parentElement) {
  								/** 如果存在保存按钮则点击 */
  								$el('[onclick*=saveQuestion]', option.parentElement.parentElement)?.click();
-@@ -2131,47 +2264,57 @@ const JobRunner = {
+@@ -2131,47 +2267,57 @@ const JobRunner = {
  					simplifyWorkResult(curr, chapterTestTaskQuestionTitleText, index)
  				);
  
@@ -3673,7 +3676,7 @@ index da82b2b..b615cd5 100644
  					}
  				}
  			},
-@@ -2232,6 +2375,26 @@ const JobRunner = {
+@@ -2232,6 +2378,26 @@ const JobRunner = {
  					// @ts-ignore 提交
  					frameWindow.btnBlueSubmit();
  
@@ -3700,7 +3703,7 @@ index da82b2b..b615cd5 100644
  					await $.sleep(3000);
  					/** 确定按钮 */
  					// @ts-ignore 确定
-@@ -2351,6 +2514,56 @@ async function readerAndFillHandle(searchInfos: SearchInformation[], list: HTMLE
+@@ -2351,6 +2517,56 @@ async function readerAndFillHandle(searchInfos: SearchInformation[], list: HTMLE
  	return { finish: false };
  }
  
@@ -12911,7 +12914,7 @@ index 74b7d18..0000000
 -	readNotes
 -};
 diff --git a/scripts/build-core.js b/scripts/build-core.js
-index 2d2f0e9..f4bd75a 100644
+index 2d2f0e9..727b2d7 100644
 --- a/scripts/build-core.js
 +++ b/scripts/build-core.js
 @@ -6,7 +6,7 @@ const util = require('util');
@@ -12995,7 +12998,7 @@ index 2d2f0e9..f4bd75a 100644
 +				name: 'CXStudy 超星助手',
 +				// 版本号显式写出：package.json 的 version 在本构建流程里没有生效（产物仍是旧版本号），
 +				// 而版本号决定油猴能否识别更新，必须准确。发版时递增此处与 package.json。
-+				version: '5.2.1-cxstudy.7',
++				version: '5.2.1-cxstudy.8',
 +				description:
 +					'超星学习通专用助手：以真实速率推进视频/音频/文档任务点，章节测验自动作答（支持图片题）。' +
 +					'基于 MIT 协议的 OCS 网课助手（https://github.com/ocsjs/ocsjs）衍生，仅保留超星学习通平台。',
@@ -13219,10 +13222,10 @@ index 0000000..1f0dd24
 +}
 diff --git a/tests/cx-model.handler.test.ts b/tests/cx-model.handler.test.ts
 new file mode 100644
-index 0000000..76ae58f
+index 0000000..d938364
 --- /dev/null
 +++ b/tests/cx-model.handler.test.ts
-@@ -0,0 +1,289 @@
+@@ -0,0 +1,308 @@
 +/**
 + * 模型 prompt 构造器测试
 + *
@@ -13496,6 +13499,25 @@ index 0000000..76ae58f
 +	norm('内在主义认为信念的证成依赖于信念之间的支持关系，因此正确性来自整体融贯。').length > 12,
 +	'被截断了'
 +);
++
++// ============ 配置默认值（随机兜底默认关闭）============
++console.log('\n[配置默认值]');
++{
++	const fs = require('fs');
++	const path = require('path');
++	const cxSrc = fs.readFileSync(
++		path.join(__dirname, '..', 'packages/scripts/src/projects/cx.ts'),
++		'utf8'
++	);
++	const mBlock = cxSrc.match(/cxRandomFallback:\s*\{[\s\S]*?defaultValue:\s*(true|false)/);
++	ok('能定位 cxRandomFallback 配置块', !!mBlock);
++	if (mBlock) {
++		eqN('随机兜底默认关闭（宁可留空也不填必然错的答案）', mBlock[1], 'false');
++	}
++	ok('说明文案写明默认关闭', cxSrc.includes('默认关闭（推荐）'));
++	ok('说明文案提示留空可能影响提交', cxSrc.includes('无法提交'));
++	ok('关闭后会跳过该题（不是静默失败）', cxSrc.includes('已关闭随机兜底，跳过该题'));
++}
 +
 +console.log(
 +	'\n' +
