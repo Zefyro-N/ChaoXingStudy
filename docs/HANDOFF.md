@@ -171,9 +171,11 @@ node tools/math-bench.mjs --garble-options --only A,V2
 > 重新打开作业页时若返回 **403**，说明会话断了 —— 必须让用户**自己从课程页点进去**，
 > 不要直接访问 `dowork?workId=...`（缺 referer/上下文）。
 
-**决定性验证手段**（已写好工具，只读）：`python tools\cx_probe_answer_semantics.py`
-把页面自身的 `addChoice()` / `submitWork()` / `getAnswer()` **函数源码**打印出来 ——
-直接看它往 `input#answer<qid>` 里写的是「可见字母」还是「原始字母」，**不靠推理也不靠点击**。
+**选项字母语义已查清（无需再查）**：提交值 = 选中选项内部 `span.num_option[data]` 的拼接，
+由站点自己的 `addChoice()` 写入，**点击即正确**。可见顺序与 `data` 不一致是站点的乱序机制，不用处理。
+
+**下一步（等用户授权）**：用面板“调试：打印实际发送的 prompt”开关抓一次真实请求，
+确认图片是否真的附上、附的是整题还是单选项。
 
 真实作业页（线性代数，18 题）实测：**选项在页面上被打乱**，可见顺序 ≠ 原始字母。
 
@@ -190,6 +192,45 @@ Q1  A. text='A A'  aria='A A选择'
 **做法**：从 `.answerBg` 的 `aria-label`（形如 `"B B、xxx,选择"`）或隐藏域
 `input#answer<qid>` 读出「可见位 ↔ 原始字母」映射，再把模型答案做一次转换后填。
 **必须先用探针确认**：提交值到底要原始字母还是可见字母（对比 `input#answer<qid>` 在提交前后的值）。
+
+### P0 · **真实断点：模型看不到题目**（2026-11-11 已用 DOM 证据修正）
+
+**先更正上一轮的猜测**：上一版写的“选项字母映射错位”**不成立**。
+
+实测 `addChoice()` 源码：
+
+```js
+$(".choice" + qid).each(function () {
+  if ($(this).hasClass("check_answer")) choiceContent += $(this).attr("data");
+});
+$("#answer" + qid).val(choiceContent);
+```
+
+而 `data` 挂在选项内部的 `span.num_option` 上：
+
+```html
+<div class="answerBg" onclick="addChoice(this)" aria-label="A A选择">
+  <span data="A" class="choice<qid> num_option fl">A</span>   <!-- 提交值 -->
+  <div class="fl answer_p"><p></p><p>A</p><p></p></div>      <!-- 可见内容 -->
+</div>
+```
+
+**OCS 是“点击选项”的**，`addChoice` 会自动写入正确的 `data` 值
+→ **乱序映射由站点自己完成，不是我们的 bug**（Q1 实测：可见 B 的 data=D，点击后站点自己写 D）。
+
+**真正的断点：输入缺失。**
+
+```
+题干含图片 : 17/18   → 模型看到的是“5. (单选题) 已知三阶矩阵的特征值…则= ( )”
+选项含图片 :  6/18   → 选项只有 “A” “B” “C” “D”，内容全是图
+选项文本几乎为空 : 5/18
+```
+
+→ 模型在**看不见题目**的情况下作答。这不是格式问题，也不是映射问题。
+
+**因此优先级改为：先把题干/选项完整送到模型（视觉），再谈其它。**
+需要确认的一件事：当前实现到底给模型发了什么。面板已有“调试：打印实际发送的 prompt”开关，
+用它抓一次真实请求，看图片是否真的带上、带的是哪一块。
 
 ### P0 · 题干/选项是图片 → 视觉路线（同一批样本已确证）
 
