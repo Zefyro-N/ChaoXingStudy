@@ -10,14 +10,14 @@ index 675a8fb..16d156f 100644
 +# 构建产物（本地 gulp 输出，不入库；对应 release/ocs.user.js）
 +release/
 diff --git a/package.json b/package.json
-index a715d35..f03f35a 100644
+index a715d35..67a18bb 100644
 --- a/package.json
 +++ b/package.json
 @@ -1,6 +1,6 @@
  {
  	"name": "ocsjs",
 -	"version": "5.2.1",
-+	"version": "5.2.1-cxstudy.11",
++	"version": "5.2.1-cxstudy.12",
  	"description": "ocs - online course script 在线网络课程辅助工具",
  	"types": "./lib/src/core/index.d.ts",
  	"main": "./lib/src/core/index.js",
@@ -103,6 +103,54 @@ index 3016971..16c08b8 100644
       *
       *
       * @param type 题目类型
+diff --git a/packages/core/src/core/worker/resolvers/completion.ts b/packages/core/src/core/worker/resolvers/completion.ts
+index 60b595a..aaa36cd 100644
+--- a/packages/core/src/core/worker/resolvers/completion.ts
++++ b/packages/core/src/core/worker/resolvers/completion.ts
+@@ -6,6 +6,33 @@ export interface CompletionResolveResult {
+ 	answers?: string[];
+ }
+ 
++/**
++ * 把「第N空：答案」格式规范化为分隔符格式。
++ *
++ * 为什么需要：提示词要求多空题按空逐行输出
++ *     第1空：单精度型
++ *     第2空：双精度型
++ * 但 `splitAnswer` 的分隔符是 ['===','#','---','###','|',';','；']，**不含换行**，
++ * 直接拆只会得到 1 段，与填空框数量不符 → resolveCompletion 判定失败 → 整题答错。
++ * 因此拆分前先做这一步转换，把逐空标注还原成分号分隔。
++ *
++ * 只在答案里出现 ≥2 个「第N空：」标注时才转换，普通答案原样返回。
++ */
++export function normalizeLabelledBlanks(answer: string, separator = '；'): string {
++	const text = String(answer ?? '');
++	if (!text) return text;
++	// 支持中英文冒号、可选的空格；捕获到行尾（不含换行）
++	const re = /第\s*(\d+)\s*空\s*[：:]\s*([^\n\r]*)/g;
++	const hits: Array<{ n: number; v: string }> = [];
++	let m: RegExpExecArray | null;
++	while ((m = re.exec(text)) !== null) {
++		hits.push({ n: Number(m[1]), v: m[2].trim() });
++	}
++	if (hits.length < 2) return text;
++	hits.sort((a, b) => a.n - b.n);
++	return hits.map((h) => h.v).join(separator);
++}
++
+ /**
+  * 填空题匹配算法
+  *
+@@ -22,7 +49,8 @@ export function resolveCompletion(
+ 	separators?: string[]
+ ): CompletionResolveResult {
+ 	for (const answers of answerGroups) {
+-		let ans = answers.filter((a) => a);
++		// 先还原「第N空：答案」逐空格式，否则 splitAnswer 拆不开（它不按换行拆）
++		let ans = answers.filter((a) => a).map((a) => normalizeLabelledBlanks(a));
+ 		if (ans.length === 1) {
+ 			ans = splitAnswer(ans[0], separators);
+ 		}
 diff --git a/packages/core/src/core/worker/resolvers/multiple.ts b/packages/core/src/core/worker/resolvers/multiple.ts
 index 3c72c90..70e8c33 100644
 --- a/packages/core/src/core/worker/resolvers/multiple.ts
@@ -13180,7 +13228,7 @@ index 74b7d18..0000000
 -	readNotes
 -};
 diff --git a/scripts/build-core.js b/scripts/build-core.js
-index 2d2f0e9..a57ec85 100644
+index 2d2f0e9..4cc169a 100644
 --- a/scripts/build-core.js
 +++ b/scripts/build-core.js
 @@ -6,7 +6,7 @@ const util = require('util');
@@ -13192,7 +13240,7 @@ index 2d2f0e9..a57ec85 100644
  const path = require('path');
  const dotenv = require('dotenv');
  const fs = require('fs');
-@@ -24,6 +24,23 @@ function cleanOutput() {
+@@ -24,6 +24,25 @@ function cleanOutput() {
  
  async function testResolver() {
  	await execOut('tsx ../tests/resolver.test.ts');
@@ -13200,6 +13248,8 @@ index 2d2f0e9..a57ec85 100644
 +	await execOut('tsx ../tests/letter-mapping.test.ts');
 +	// 整题截图触发条件（真实作业页数据驱动，2026-11-11）
 +	await execOut('tsx ../tests/cx-screenshot-decision.test.ts');
++	// 多空填空「第N空：」与 resolveCompletion 的兼容性
++	await execOut('tsx ../tests/blank-format.test.ts');
 +	// handler 是以字符串形式存在的运行期源码（由 Function() 求值），
 +	// tsc 查不出其中的引用错误，因此构建前必须真实求值并调用一遍。
 +	await execOut('tsx ../tests/cx-model.handler.test.ts');
@@ -13216,7 +13266,7 @@ index 2d2f0e9..a57ec85 100644
  }
  
  async function buildPackages() {
-@@ -48,18 +65,30 @@ async function createUserJs() {
+@@ -48,18 +67,30 @@ async function createUserJs() {
  	// @ts-ignore
  	const ocs = require(path.join(distPath, 'index.js'));
  
@@ -13253,7 +13303,7 @@ index 2d2f0e9..a57ec85 100644
  					.flat()
  			)
  		);
-@@ -76,23 +105,31 @@ async function createUserJs() {
+@@ -76,23 +107,31 @@ async function createUserJs() {
  				gap: '\t'.repeat(4)
  			},
  			metadata: {
@@ -13268,7 +13318,7 @@ index 2d2f0e9..a57ec85 100644
 +				name: 'CXStudy 超星助手',
 +				// 版本号显式写出：package.json 的 version 在本构建流程里没有生效（产物仍是旧版本号），
 +				// 而版本号决定油猴能否识别更新，必须准确。发版时递增此处与 package.json。
-+				version: '5.2.1-cxstudy.11',
++				version: '5.2.1-cxstudy.12',
 +				description:
 +					'超星学习通专用助手：以真实速率推进视频/音频/文档任务点，章节测验自动作答（支持图片题）。' +
 +					'基于 MIT 协议的 OCS 网课助手（https://github.com/ocsjs/ocsjs）衍生，仅保留超星学习通平台。',
@@ -13300,7 +13350,7 @@ index 2d2f0e9..a57ec85 100644
  				match: matchMetadata,
  				grant: [
  					'GM_info',
-@@ -106,13 +143,13 @@ async function createUserJs() {
+@@ -106,13 +145,13 @@ async function createUserJs() {
  					'GM_notification',
  					'GM_xmlhttpRequest',
  					'GM_getResourceText',
@@ -13316,7 +13366,7 @@ index 2d2f0e9..a57ec85 100644
  			},
  			entry: path.join(__dirname, '../packages/scripts/entry.js'),
  			dist: path.join(__dirname, distPath, 'ocs.user.js')
-@@ -122,8 +159,20 @@ async function createUserJs() {
+@@ -122,8 +161,20 @@ async function createUserJs() {
  	const officialOpts = createOptions();
  	console.log('CreateUserScript: ', officialOpts.metadata.name, officialOpts.dist);
  	await createUserScript(officialOpts);
@@ -13339,7 +13389,7 @@ index 2d2f0e9..a57ec85 100644
  
  	/** 创建调试脚本 */
  	const devOpts = createOptions();
-@@ -141,18 +190,6 @@ async function createUserJs() {
+@@ -141,18 +192,6 @@ async function createUserJs() {
  	);
  	console.log('createUserScript: ', devOpts.metadata.name, devOpts.dist);
  	await createUserScript(devOpts);
@@ -13490,6 +13540,80 @@ index 0000000..1f0dd24
 +	failures.forEach((f) => console.log('  - ' + f));
 +	process.exit(1);
 +}
+diff --git a/tests/blank-format.test.ts b/tests/blank-format.test.ts
+new file mode 100644
+index 0000000..7003c28
+--- /dev/null
++++ b/tests/blank-format.test.ts
+@@ -0,0 +1,68 @@
++/**
++ * SPDX-FileCopyrightText: 2026 Zefyro-N
++ * SPDX-License-Identifier: MIT
++ *
++ * 多空填空题：「第N空：答案」格式与 resolveCompletion 的兼容性测试。
++ *
++ * 背景：提示词要求多空题逐行输出「第N空：答案」，
++ * 但 splitAnswer 的分隔符不含换行 → 只能拆出 1 段 → 与填空框数量不符 → 整题失败。
++ * 修法：拆分前先用 normalizeLabelledBlanks() 还原成「；」分隔。
++ */
++import { resolveCompletion, normalizeLabelledBlanks } from '../packages/core/src/core/worker/resolvers/completion';
++
++let pass = 0;
++let fail = 0;
++function ok(name: string, cond: boolean, detail?: unknown) {
++	if (cond) {
++		pass++;
++		console.log('    ✅ ' + name);
++	} else {
++		fail++;
++		console.log('    ❌ ' + name + (detail === undefined ? '' : '  → ' + JSON.stringify(detail)));
++	}
++}
++
++console.log('\n[normalizeLabelledBlanks]');
++
++const two = '第1空：单精度型\n第2空：双精度型';
++ok('两空 → 分号分隔', normalizeLabelledBlanks(two) === '单精度型；双精度型', normalizeLabelledBlanks(two));
++
++const three = '第1空：甲\n第2空：乙\n第3空：丙';
++ok('三空 → 三段', normalizeLabelledBlanks(three) === '甲；乙；丙', normalizeLabelledBlanks(three));
++
++ok('英文冒号也支持', normalizeLabelledBlanks('第1空: A\n第2空: B') === 'A；B');
++ok('空格容错', normalizeLabelledBlanks('第 1 空 ： A\n第 2 空 ： B') === 'A；B');
++ok('乱序编号按编号排序', normalizeLabelledBlanks('第2空：B\n第1空：A') === 'A；B');
++ok('只有一空 → 原样返回（不转换）', normalizeLabelledBlanks('第1空：甲') === '第1空：甲');
++ok('普通填空答案不变', normalizeLabelledBlanks('2x+1') === '2x+1');
++ok('空串安全', normalizeLabelledBlanks('') === '');
++ok('含换行的普通答案不变', normalizeLabelledBlanks('甲\n乙') === '甲\n乙');
++
++console.log('\n[resolveCompletion：真实场景]');
++
++// 逐空格式 + 2 个空 → 修复前 finish=false，修复后 true
++const r2 = resolveCompletion([[two]], 2);
++ok('2 空 + 逐空格式 → 成功', r2.finish && r2.answers?.length === 2, r2);
++ok('2 空 + 逐空格式 → 值正确', r2.answers?.[0] === '单精度型' && r2.answers?.[1] === '双精度型', r2.answers);
++
++const r3 = resolveCompletion([[three]], 3);
++ok('3 空 + 逐空格式 → 成功', r3.finish && r3.answers?.length === 3, r3);
++
++// 单空：合并为一条
++const r1 = resolveCompletion([['第1空：甲\n第1空续']], 1);
++ok('1 空 → 成功且合并', r1.finish && r1.answers?.length === 1, r1);
++
++// 分号格式仍然工作（旧格式不回归）
++const rSemi = resolveCompletion([['甲；乙']], 2);
++ok('分号格式 → 仍然成功', rSemi.finish && rSemi.answers?.length === 2, rSemi);
++
++// 段数与空数不匹配 → 仍应失败（不能为了"成功"而瞎拼）
++const rMismatch = resolveCompletion([['只有一段；']], 3);
++ok('段数不匹配 → 不强行拼接（除单空外应失败）', !rMismatch.finish, rMismatch);
++
++// 多个答案组时，取第一个可用的
++const rMulti = resolveCompletion([['第1空：错'], [three]], 3);
++ok('多组答案 → 取可用的那组', rMulti.finish && rMulti.answers?.[0] === '甲', rMulti);
++
++console.log('\n' + (fail === 0 ? '✅ ' : '❌ ') + `${pass} 通过   ❌ ${fail} 失败   共 ${pass + fail} 项\n`);
++if (fail > 0) process.exit(1);
 diff --git a/tests/cx-model.handler.test.ts b/tests/cx-model.handler.test.ts
 new file mode 100644
 index 0000000..b010bbb

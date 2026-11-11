@@ -354,7 +354,22 @@ $("#answer" + qid).val(choiceContent);
 `tools/cx_observe.py`、`tools/cx_inspect.py`、`tools/cx_measure.py`
 （**注意：同一时刻只能有一个 CDP 客户端**）
 
-### P0 · 多空填空题格式与 resolver 不兼容
+### ✅ 已修 · 多空填空题格式（`5.2.1-cxstudy.12`）
+
+`packages/core/src/core/worker/resolvers/completion.ts` 新增 `normalizeLabelledBlanks()`，
+在 `resolveCompletion` 拆分**之前**把提示词的逐空格式还原成分号分隔：
+
+```
+第1空：单精度型\n第2空：双精度型   →   单精度型；双精度型
+```
+
+理由：`splitAnswer` 的分隔符是 `['===','#','---','###','|',';','；']`，**不含换行**，
+所以逐空格式只能拆出 1 段 → 与填空框数量不符 → 整题失败。
+
+保守性：只在出现 **≥2 个「第N空：」标注**时才转换；单空、普通填空、含换行的普通答案一律原样返回。
+测试 `tests/blank-format.test.ts` 16 项（含「段数不匹配时不强行拼接」的负向用例）。
+
+### P0（历史）· 多空填空题格式与 resolver 不兼容
 
 `resolveCompletion` 要求**段数 == 空数**，而 `splitAnswer` 分隔符是
 `['===','#','---','###','|',';','；']`——**不含换行、逗号、顿号**。
