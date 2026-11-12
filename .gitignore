@@ -36,3 +36,6 @@ __pycache__/
 *.pyc
 dist/
 .publish/
+
+# 自定义
+refs/ocsjs/

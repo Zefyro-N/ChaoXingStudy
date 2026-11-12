@@ -1,3 +1,5 @@
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+
 # CXStudy 超星助手
 
 适用于 **超星学习通**（chaoxing.com / xueyinonline.com）的用户脚本：
@@ -9,7 +11,7 @@
 
 ---
 
-## ⚠️ 本项目是衍生作品（请先读这里）
+## 本项目是衍生作品（请先读这里）
 
 **本项目的绝大部分能力来自另一个开源项目，请把 star 与支持给原作者。**
 
