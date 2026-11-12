@@ -29,15 +29,7 @@
 - **改动**：删除其他平台代码（只留超星）、答题来源从"题库"改为"自备大模型 API"、
   以及针对答题正确率的若干修正（见 [与上游的差异](#与上游的差异简述)）。
 
-**如何遵守 MIT 与尊重原作者**
-
-1. 脚本头部 `@author enncy` / `@license MIT` **原样保留**；
-2. `LICENSE` 保留上游原始版权行，并追加本分支版权行；
-3. 上游文本与许可声明未删除、未替换；
-4. README 顶部即声明来源；
-5. 上游若对本分支处理方式有异议，请提 issue，我们会配合调整。
-
-> 只是想上网课的话，**直接用上游 OCS 网课助手**通常更合适 —— 支持平台更多、维护更活跃。
+**本分支作者**：[Zefyro-N](https://github.com/Zefyro-N)
 
 ---
 
@@ -80,12 +72,6 @@
 |---|---|
 | `opencode-go` | `deepseek-v4.1-flash` |
 | `deepseek 官方` | `deepseek-flash` |
-
-> ⚠️ **两家的模型 ID 不通用，不能写死成一个值。**
-> 实测（2026-10-21）`GET https://api.deepseek.com/models` 只返回 `deepseek-flash` / `deepseek-v4-pro`；
-> 给官方传 `deepseek-v4.1-flash` 会直接 `HTTP 400`：
-> `The supported API model names are deepseek-flash, deepseek-v4-pro, but you passed deepseek-v4.1-flash`
-> 而 `opencode-go` 用 `deepseek-v4.1-flash` 是正常的。脚本已按提供商分别取模型。
 
 其他相关设计：
 - `max_tokens = 8192`：推理模型会把额度烧在 `reasoning_content` 上，给低了会出现
@@ -185,4 +171,4 @@ npx gulp -f ./scripts/build-core.js
 - **原始版权声明与许可声明完整保留**（见 `LICENSE` 与脚本头部 `@author enncy`）。
 - 原始版权：`Copyright (c) enncy`；本衍生分支：`Copyright (c) 2026 Zefyro-N`。
 - 本项目以 MIT 协议发布。
-- 感谢上游作者与所有贡献者 —— 没有他们，这个项目不会存在。
+- 感谢上游作者与所有贡献者。
